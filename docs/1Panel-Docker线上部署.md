@@ -56,6 +56,14 @@ API 和 Worker 共用同一个 wechatsend-backend 镜像，并没有重复构建
     SMTP_PASS="SMTP授权码"
     SMTP_FROM="发信邮箱"
 
+P3/P4/P5 还需要在服务端 `.env` 设置：
+
+    APP_ENCRYPTION_KEY="至少32位随机字符串"
+    WECHAT_MINI_APPID="小程序 AppID"
+    WECHAT_MINI_SECRET="小程序 Secret"
+
+`APP_ENCRYPTION_KEY` 用于加密 AI/API 密钥，丢失后无法解密已保存的通道密钥；不要在前端、小程序或 Git 中使用它。微信支付 V3 只有在开通支付并准备好商户证书后再填写 `WECHAT_PAY_MCH_ID`、`WECHAT_PAY_SERIAL_NO`、`WECHAT_PAY_PRIVATE_KEY`、`WECHAT_PAY_API_V3_KEY`、`WECHAT_PAY_PLATFORM_CERT` 和 `WECHAT_PAY_NOTIFY_URL`。支付回调地址必须是公网 HTTPS。
+
 若数据库或 Redis 密码含有 @、#、/、?、: 等字符，必须先对用户名和密码做 URL 编码。.env 不能提交到 Git。
 
 ### 3.1 确认 Redis 容器名和共享网络
@@ -99,6 +107,7 @@ Redis 有密码时：
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env build
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate npm run connections:check
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate npm run content:seed
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env ps
 
@@ -222,3 +231,19 @@ P2 新增好友分组/标签、模板、变量、草稿及任务内容快照表�
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env ps
 
 本次迁移不删除 P1 数据，会为已有任务补充可空的模板/变量快照字段，并写入首批平台精选模板。API、Worker、Web 仍是三个职责独立的应用容器；PostgreSQL 和 Redis 继续复用 1Panel 已有服务，不会额外创建数据库容器。
+
+## 10. P3/P4/P5 升级与小程序配置
+
+当前版本新增一份迁移 `20260908020000_p3_p5_platform_features`。更新时先备份数据库，再执行：
+
+    git pull --ff-only
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env build
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate npm run content:seed
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d --remove-orphans
+
+小程序后台需要配置 API 合法域名为部署域名，并将 `miniprogram/services/api.ts` 中的 `API_BASE` 改为同一 HTTPS 域名。身份登录使用 `wx.login`，服务端通过 `jscode2session` 换取 openid；session_key 只停留在服务端，不写入小程序存储。
+
+扫码支付流程是：Web/API 创建待支付订单并生成小程序码 → 用户扫码进入 `pages/pay/index` → 小程序完成身份授权 → 服务端以该 openid 创建 JSAPI 预支付订单 → 小程序调用 `wx.requestPayment` → 微信支付回调验签、解密并更新订单。没有微信支付商户号、商户私钥、平台证书和 API v3 Key 时，只能联调身份和二维码入口，不能宣称支付已上线。
+
+AI 通道和外部 API 在管理员后台配置。AI/API 密钥由 `APP_ENCRYPTION_KEY` 加密保存；天气等动态变量配置为外部 API 的响应路径，例如 `data.weather.text`，任务提交时会请求并冻结变量值，API 失败会阻止发送，不会发送占位符。

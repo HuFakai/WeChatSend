@@ -83,3 +83,5 @@ export type ApiIntegration = {
   enabled: boolean;
   variables: Array<{ id: string; name: string; displayName: string; responsePath: string }>;
 };
+
+export type PlatformTemplate = { id: string; title: string; content: string; category: string | null; isActive: boolean; version: number; updatedAt: string };

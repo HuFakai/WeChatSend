@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { AiService, AI_FEATURES } from './ai';
 import { assertAdmin, AuthGuard, AuthRequest } from './auth';
 import { ExternalApiService } from './external-api';
+import { assertSafeTagValue } from './lib';
 import { encryptSecret } from './secrets';
 import { PrismaService } from './prisma.service';
 import { ZodPipe } from './zod.pipe';
@@ -42,6 +43,8 @@ const integrationSchema = z.object({
 });
 const patchIntegrationSchema = integrationSchema.partial();
 const testAiSchema = z.object({ modelId: z.string().uuid(), prompt: z.string().trim().min(2).max(1000).default('请写一句简短的客户问候语') });
+const platformTemplateSchema = z.object({ title: z.string().trim().min(1).max(100), content: z.string().min(1).max(10000), category: z.string().trim().max(40).optional().nullable(), isActive: z.boolean().default(true) });
+const patchPlatformTemplateSchema = platformTemplateSchema.partial();
 
 function assertSafeUrl(value: string) {
   const url = new URL(value);
@@ -150,6 +153,26 @@ export class AdminService {
     return { ok: true, preview: typeof response === 'object' ? response : String(response) };
   }
 
+  async templates() {
+    return this.prisma.messageTemplate.findMany({ where: { scope: 'PLATFORM' }, orderBy: [{ category: 'asc' }, { updatedAt: 'desc' }] });
+  }
+
+  async createTemplate(body: z.infer<typeof platformTemplateSchema>) {
+    this.validateTemplate(body.content);
+    return this.prisma.messageTemplate.create({ data: { title: body.title, content: body.content, category: body.category || null, isActive: body.isActive, scope: 'PLATFORM', ownerId: null } });
+  }
+
+  async updateTemplate(id: string, body: z.infer<typeof patchPlatformTemplateSchema>) {
+    const current = await this.prisma.messageTemplate.findFirst({ where: { id, scope: 'PLATFORM' } });
+    if (!current) throw new NotFoundException('平台模板不存在');
+    if (body.content) this.validateTemplate(body.content);
+    return this.prisma.messageTemplate.update({ where: { id }, data: { ...body, ...(body.category === undefined ? {} : { category: body.category || null }), version: { increment: 1 } } });
+  }
+
+  private validateTemplate(content: string) {
+    try { assertSafeTagValue(content); } catch (error) { throw new BadRequestException((error as Error).message); }
+  }
+
   private async assertVariableNames(names: string[], currentId?: string) {
     if (new Set(names).size !== names.length) throw new BadRequestException('同一外部 API 的变量名不能重复');
     const existing = await this.prisma.apiIntegrationVariable.findMany({ where: { name: { in: names }, ...(currentId ? { integrationId: { not: currentId } } : {}) }, select: { name: true } });
@@ -185,6 +208,15 @@ export class AdminController {
 
   @Post('ai/test')
   testAi(@Req() request: AuthRequest, @Body(new ZodPipe(testAiSchema)) body: z.infer<typeof testAiSchema>) { assertAdmin(request); return this.ai.generate(request.user.id, { mode: 'COPY', prompt: body.prompt, modelId: body.modelId }); }
+
+  @Get('templates')
+  templates(@Req() request: AuthRequest) { assertAdmin(request); return this.admin.templates(); }
+
+  @Post('templates')
+  createTemplate(@Req() request: AuthRequest, @Body(new ZodPipe(platformTemplateSchema)) body: z.infer<typeof platformTemplateSchema>) { assertAdmin(request); return this.admin.createTemplate(body); }
+
+  @Patch('templates/:id')
+  updateTemplate(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(patchPlatformTemplateSchema)) body: z.infer<typeof patchPlatformTemplateSchema>) { assertAdmin(request); return this.admin.updateTemplate(id, body); }
 
   @Get('integrations')
   integrations(@Req() request: AuthRequest) { assertAdmin(request); return this.admin.integrations(); }
