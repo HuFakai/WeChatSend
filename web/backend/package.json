@@ -13,6 +13,7 @@
     "db:generate": "tsx scripts/prisma-command.ts generate",
     "db:migrate": "tsx scripts/prisma-command.ts migrate dev",
     "db:deploy": "tsx scripts/prisma-command.ts migrate deploy",
+    "connections:check": "tsx scripts/check-connections.ts",
     "user:create": "tsx scripts/create-user.ts"
   },
   "dependencies": {

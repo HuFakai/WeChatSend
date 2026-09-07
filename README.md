@@ -33,7 +33,7 @@ Web 默认运行于 `http://localhost:5173`，API 默认运行于 `http://localh
 
 ## Docker 线上部署
 
-项目提供 Web、API、Worker、Redis 的生产 Compose 配置。1Panel 首次部署、更新、日志与回滚命令见
+项目提供 Web、API、Worker 的生产 Compose 配置，线上 PostgreSQL 和 Redis 使用 1Panel 已有服务。首次部署、更新、连接检查、日志与回滚命令见
 [1Panel + Docker 线上部署](docs/1Panel-Docker线上部署.md)。
 
 快捷指令微信发送结果回调：
