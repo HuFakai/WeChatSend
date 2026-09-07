@@ -31,7 +31,7 @@ API 和 Worker 共用同一个 wechatsend-backend 镜像，并没有重复构建
 - 服务器安装 Git、Docker 与 Docker Compose；1Panel 的“容器”功能可正常使用。
 - 准备一个已解析到服务器的域名，并在 1Panel 中申请 HTTPS 证书。
 - PostgreSQL 只向服务器 IP 放行 5432，生产环境不要向整个公网开放数据库。
-- 在 1Panel 中确认 Redis 的宿主机访问端口和密码。Redis 端口不得向公网开放。
+- 在 1Panel 中确认 Redis 的容器名、所在 Docker 网络和密码。优先通过 1Panel 内部网络访问，Redis 端口不得向公网开放。
 - QQ 邮箱使用 SMTP 授权码，不是 QQ 登录密码。曾出现在截图或聊天记录里的授权码应先重置。
 
 ## 3. 首次部署
@@ -48,29 +48,50 @@ API 和 Worker 共用同一个 wechatsend-backend 镜像，并没有重复构建
 编辑 /opt/1panel/apps/WeChatSend/.env，至少确认：
 
     DATABASE_URL="postgresql://数据库用户:数据库密码@数据库地址:5432/wechatsend?schema=public"
-    REDIS_URL="redis://host.docker.internal:6379/2"
+    ONEPANEL_NETWORK="1panel-network"
+    REDIS_URL="redis://:URL编码后的密码@真实Redis容器名:6379/2"
     APP_ORIGIN="https://你的域名"
     WEB_PORT=8080
     SMTP_USER="发信邮箱"
     SMTP_PASS="SMTP授权码"
     SMTP_FROM="发信邮箱"
 
-若数据库密码含有 @、#、/、?、: 等字符，必须先对用户名和密码做 URL 编码。.env 不能提交到 Git。
+若数据库或 Redis 密码含有 @、#、/、?、: 等字符，必须先对用户名和密码做 URL 编码。.env 不能提交到 Git。
 
-host.docker.internal 通过 Compose 的 host-gateway 映射访问当前服务器宿主机。
-API 和 Worker 位于容器内，所以不能使用 127.0.0.1；它指向的是容器自身。
-末尾的 /2 表示为 WeChatSend 使用 Redis 逻辑库 2，避免与其他应用键名冲突。
+### 3.1 确认 Redis 容器名和共享网络
+
+先执行以下只读命令，不要凭 1Panel 页面标题猜容器名：
+
+    docker ps --format 'table {{.Names}}\t{{.Networks}}\t{{.Ports}}' | grep -i redis
+    docker network ls --format 'table {{.Name}}\t{{.Driver}}' | grep -i 1panel
+
+把第一条命令显示的容器名原样放进 REDIS_URL。Docker 容器名只有在两个容器位于同一个网络时才能作为主机名解析。生产 Compose 会让 API、Worker 和临时 migrate 容器加入 ONEPANEL_NETWORK 指定的外部网络；1Panel 通常使用内置的 `1panel-network`。
+
+继续确认 Redis 是否已经在这个网络中：
+
+    docker network inspect 1panel-network --format '{{range .Containers}}{{println .Name}}{{end}}' | grep -i redis
+
+如果没有输出，将真实 Redis 容器接入该网络：
+
+    docker network connect 1panel-network 真实Redis容器名
+
+如果 Redis 实际位于另一个 1Panel 网络，则不要重复连接，直接把 ONEPANEL_NETWORK 改为该网络名。不要填写 Redis 的 172.x 临时 IP。
 
 Redis 没有密码时：
 
-    REDIS_URL="redis://host.docker.internal:6379/2"
+    REDIS_URL="redis://真实Redis容器名:6379/2"
 
 Redis 有密码时：
 
+    REDIS_URL="redis://:URL编码后的密码@真实Redis容器名:6379/2"
+
+末尾的 /2 表示为 WeChatSend 使用 Redis 逻辑库 2，避免与其他应用键名冲突。此连接方式走 Docker 内网，不要求 Redis 映射宿主机端口。
+
+如果确实要通过 Redis 的宿主机映射端口访问，也可使用保留的 host-gateway：
+
     REDIS_URL="redis://:URL编码后的密码@host.docker.internal:6379/2"
 
-如果 1Panel 映射的 Redis 宿主机端口不是 6379，应替换为实际端口。不要填写 Redis
-容器的 172.x 临时 IP。密码中的 @、#、/、?、: 等字符同样需要 URL 编码。
+该备用方式要求 1Panel 已启用 Redis 端口外部访问；端口不是 6379 时应替换为实际宿主机端口。API 和 Worker 位于容器内，不能使用 127.0.0.1，它指向容器自身。
 
 构建镜像、执行数据库迁移并启动：
 
@@ -84,6 +105,8 @@ Redis 有密码时：
 build 命令只构建 wechatsend-web 和 wechatsend-backend 两个自有镜像，
 API 与 Worker 从同一个后端镜像分别创建容器。connections:check 必须同时显示
 PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
+
+出现 `getaddrinfo ENOTFOUND Redis容器名` 时，说明 REDIS_URL 的主机名无法通过 Docker DNS 解析。优先检查容器名是否完全一致，以及 Redis 和临时 migrate 容器是否都在 ONEPANEL_NETWORK，而不是修改密码或逻辑库编号。
 
 创建首个登录用户：
 
@@ -131,13 +154,14 @@ PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
 
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d --force-recreate api worker
 
-环境变量示例在项目更新后可能增加字段，但 git pull 不会覆盖现有 .env。检查本次新增的非敏感字段：
+环境变量示例在项目更新后可能增加字段，但 git pull 不会覆盖现有 .env。检查本次新增的字段：
 
-    grep -E '^(REDIS_URL|WEB_PORT)=' .env
+    grep -E '^(ONEPANEL_NETWORK|REDIS_URL|WEB_PORT)=' .env
 
-缺少 REDIS_URL 的已部署项目，应填写 1Panel Redis 的实际端口、逻辑库及密码：
+缺少字段的已部署项目，应填写 1Panel 的共享网络、Redis 真实容器名、逻辑库及密码：
 
-    REDIS_URL="redis://host.docker.internal:6379/2"
+    ONEPANEL_NETWORK="1panel-network"
+    REDIS_URL="redis://:URL编码后的密码@真实Redis容器名:6379/2"
 
 修改后先验证连接，再重建：
 
@@ -159,7 +183,21 @@ PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
 - 当前生产配置建议只运行一个 Worker 副本。数据库锁支持并发保护，但首版没有必要横向扩容。
 - API 与 Worker 遇到 PostgreSQL 回收连接时会重建连接并有限重试；SMTP 结果不确定时不会盲目重复发送。
 
-## 7. 回滚
+## 7. 当前环境变量核对
+
+根据部署输出判断：PostgreSQL 已连接成功，迁移也已完成；API 健康和 Web 启动日志本身没有异常。Redis 的 `ENOTFOUND` 表示容器网络/DNS 配置错误，不能据此判断 Redis 密码错误。即使后续命令启动了 API、Worker 和 Web，只要连接检查没有显示 `Redis: OK`，Worker 就不能可靠消费邮件队列，部署仍未验收通过。
+
+其余变量按以下规则核对：
+
+- DB_CONNECTION_LIMIT=4、DB_POOL_TIMEOUT=20 和 WORKER_CONCURRENCY=4 可作为当前单 Worker 的保守起点。
+- APP_ORIGIN 必须与浏览器实际访问的 HTTPS 源完全相同，不带路径。
+- WEB_PORT 必须和 1Panel 反向代理的本机端口一致。
+- SMTP_PORT=465 时 SMTP_SECURE=true；SMTP_PASS 必须是授权码。
+- DEFAULT_TRIGGER_SUBJECT 必须与 iPhone 邮件自动化条件一致。
+
+如果数据库密码、Redis 密码或 SMTP 授权码曾出现在截图、聊天或日志中，上线前应全部轮换，并只保存在服务器 `.env` 中。
+
+## 8. 回滚
 
 部署前记录当前提交：
 

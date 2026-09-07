@@ -12,6 +12,8 @@ async function main() {
     connectTimeout: 5000,
     maxRetriesPerRequest: 0,
   });
+  // ioredis 会额外通过 EventEmitter 报错；连接结果由下方 Promise 统一处理。
+  redis.on('error', () => undefined);
 
   try {
     const [database, queue] = await Promise.allSettled([

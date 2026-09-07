@@ -14,6 +14,7 @@ x-backend: &backend
     - "host.docker.internal:host-gateway"
   networks:
     - wechatsend
+    - onepanel
 
 services:
   migrate:
@@ -58,3 +59,6 @@ services:
 
 networks:
   wechatsend:
+  onepanel:
+    external: true
+    name: ${ONEPANEL_NETWORK:-1panel-network}
