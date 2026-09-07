@@ -11,7 +11,7 @@ function pathParts(path: string) {
   return path.replace(/^\$\.?/, '').replace(/\[(['"]?)([^'"\]]+)\1\]/g, '.$2').split('.').filter(Boolean);
 }
 
-function pickPath(input: unknown, path: string): unknown {
+export function pickPath(input: unknown, path: string): unknown {
   return pathParts(path).reduce<unknown>((value, part) => {
     if (value === null || value === undefined || typeof value !== 'object') return undefined;
     return (value as Record<string, unknown>)[part];
@@ -22,7 +22,7 @@ function jsonObject(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function stringValue(value: unknown) {
+export function stringValue(value: unknown) {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);

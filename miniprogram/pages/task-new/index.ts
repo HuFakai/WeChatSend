@@ -3,7 +3,7 @@ const pad = (value: number) => String(value).padStart(2, '0');
 const seed = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 Page({
-  data: { title: '', content: '', selections: [] as any[], total: 0, timing: 'now', date: '', time: '', templates: [] as any[], templateNames: ['不使用模板'], templateIndex: 0, variables: [] as any[], builtIns: [{ name: 'friend_name', label: '好友称呼' }, { name: 'date', label: '日期' }, { name: 'time', label: '时间' }, { name: 'weekday', label: '星期' }], renderSeed: seed(), draftId: '', busy: false, error: '' },
+  data: { title: '', content: '', selections: [] as any[], total: 0, timing: 'now', date: '', time: '', templates: [] as any[], templateNames: ['不使用模板'], templateIndex: 0, variables: [] as any[], builtIns: [{ name: 'friend_name', label: '好友称呼' }, { name: 'date', label: '日期' }, { name: 'time', label: '时间' }, { name: 'weekday', label: '星期' }, { name: 'random_quote', label: '随机语录' }, { name: 'warm_greeting', label: '温馨问候' }], renderSeed: seed(), draftId: '', busy: false, error: '' },
   onLoad(options: any) { const now = new Date(); this.setData({ date: `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}:${pad(now.getMinutes())}`, draftId: options.draft || '' }); void this.init(options); },
   async init(options: any) { try {
     const [accounts, templates, variables, draft] = await Promise.all([request<any[]>('/accounts'), request<any[]>('/templates'), request<any[]>('/variables'), options.draft ? request<any>(`/drafts/${options.draft}`) : Promise.resolve(null)]);

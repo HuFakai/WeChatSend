@@ -23,7 +23,7 @@ export type Friend = {
 
 export type Segment = { id: string; accountId: string; name: string; friendIds: string[] };
 export type MessageTemplate = { id: string; scope: 'PLATFORM' | 'USER'; title: string; content: string; category: string | null; version: number; favorite: boolean };
-export type CustomVariable = { id: string; name: string; displayName: string; mode: 'FIXED' | 'RANDOM' | 'SEQUENCE'; version: number; values: Array<{ id: string; value: string; position: number }> };
+export type CustomVariable = { id: string; name: string; displayName: string; mode: 'FIXED' | 'RANDOM' | 'SEQUENCE'; version: number; values: Array<{ id: string; value: string; position: number }>; source?: 'API' };
 export type TaskDraft = { id: string; title: string; content: string; scheduledAt: string | null; payload: { selections?: Array<{ accountId: string; friendIds: string[]; groupIds?: string[]; tagIds?: string[]; minDelay?: number; maxDelay?: number }>; templateId?: string | null; renderSeed?: string }; updatedAt: string };
 
 export type Task = {

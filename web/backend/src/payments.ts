@@ -71,6 +71,7 @@ export class WechatPayService {
       mchid: config().WECHAT_PAY_MCH_ID,
       description: updated.description,
       out_trade_no: updated.outTradeNo,
+      time_expire: updated.expiresAt.toISOString(),
       notify_url: config().WECHAT_PAY_NOTIFY_URL,
       amount: { total: updated.amountFen, currency: 'CNY' },
       payer: { openid: request.user.miniOpenid },
@@ -82,6 +83,15 @@ export class WechatPayService {
 
   async list(request: AuthRequest) {
     return this.prisma.paymentOrder.findMany({ where: { userId: request.user.id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, description: true, amountFen: true, status: true, outTradeNo: true, expiresAt: true, createdAt: true, updatedAt: true } });
+  }
+
+  async detail(request: AuthRequest, orderId: string) {
+    const order = await this.prisma.paymentOrder.findFirst({
+      where: { id: orderId, userId: request.user.id },
+      select: { id: true, description: true, amountFen: true, status: true, outTradeNo: true, expiresAt: true, createdAt: true, updatedAt: true },
+    });
+    if (!order) throw new NotFoundException('付款订单不存在');
+    return order;
   }
 
   async notify(request: Request) {
@@ -180,6 +190,10 @@ export class PaymentsController {
   @UseGuards(AuthGuard)
   @Get('orders')
   list(@Req() request: AuthRequest) { return this.payments.list(request); }
+
+  @UseGuards(AuthGuard)
+  @Get('orders/:id')
+  detail(@Req() request: AuthRequest, @Param('id') id: string) { return this.payments.detail(request, id); }
 
   @Post('notify')
   notify(@Req() request: Request) { return this.payments.notify(request); }

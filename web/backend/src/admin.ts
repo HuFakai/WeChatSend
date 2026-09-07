@@ -15,7 +15,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { AiService, AI_FEATURES } from './ai';
 import { assertAdmin, AuthGuard, AuthRequest } from './auth';
-import { ExternalApiService } from './external-api';
+import { ExternalApiService, pickPath, stringValue } from './external-api';
 import { assertSafeTagValue } from './lib';
 import { encryptSecret } from './secrets';
 import { PrismaService } from './prisma.service';
@@ -37,7 +37,7 @@ const integrationSchema = z.object({
   url: z.string().url().max(1000),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH']),
   headers: z.record(z.string(), z.string()).default({}),
-  requestParams: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+  requestParams: z.record(z.string(), z.unknown()).default({}),
   variables: z.array(integrationVariableSchema).min(1).max(50),
   enabled: z.boolean().default(true),
 });
@@ -123,7 +123,7 @@ export class AdminService {
     return this.prisma.apiIntegration.create({ data: {
       name: body.name, url: body.url, method: body.method, enabled: body.enabled,
       encryptedHeaders: Object.keys(body.headers).length ? encryptSecret(JSON.stringify(body.headers)) : null,
-      requestParams: body.requestParams,
+      requestParams: body.requestParams as Prisma.InputJsonValue,
       variables: { create: body.variables },
     }, include: { variables: true } });
   }
@@ -140,7 +140,7 @@ export class AdminService {
       }
       return tx.apiIntegration.update({ where: { id }, data: {
         ...(body.name === undefined ? {} : { name: body.name }), ...(body.url === undefined ? {} : { url: body.url }), ...(body.method === undefined ? {} : { method: body.method }), ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
-        ...(body.requestParams === undefined ? {} : { requestParams: body.requestParams }),
+        ...(body.requestParams === undefined ? {} : { requestParams: body.requestParams as Prisma.InputJsonValue }),
         ...(body.headers === undefined ? {} : { encryptedHeaders: Object.keys(body.headers).length ? encryptSecret(JSON.stringify(body.headers)) : null }),
       }, include: { variables: true } });
     });
@@ -150,7 +150,11 @@ export class AdminService {
     const integration = await this.prisma.apiIntegration.findUnique({ where: { id }, include: { variables: true } });
     if (!integration) throw new NotFoundException('外部 API 不存在');
     const response = await this.externalApi.execute(integration);
-    return { ok: true, preview: typeof response === 'object' ? response : String(response) };
+    return {
+      ok: true,
+      preview: typeof response === 'object' ? response : String(response),
+      variables: integration.variables.map((variable) => ({ name: variable.name, responsePath: variable.responsePath, value: stringValue(pickPath(response, variable.responsePath)) ?? null })),
+    };
   }
 
   async templates() {

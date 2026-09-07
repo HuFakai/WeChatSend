@@ -54,8 +54,10 @@ export class MiniAuthController {
     const identity = await exchangeCode(body.code);
     const user = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid } });
     if (!user || user.status !== 'ACTIVE') throw new NotFoundException('MINI_ACCOUNT_NOT_FOUND');
+    const publicUser = this.publicUser(user);
+    if (publicUser.needsProfile) return { token: null, expiresAt: null, user: publicUser };
     const session = await issueSession(this.prisma, user.id);
-    return { ...session, user: this.publicUser(user) };
+    return { ...session, user: publicUser };
   }
 
   @Post('login')
@@ -95,6 +97,6 @@ export class MiniAuthController {
   }
 
   private publicUser(user: { id: string; username: string; timezone: string; role: string; nickname: string | null; avatarUrl: string | null; miniOpenid: string | null }) {
-    return { id: user.id, username: user.username, timezone: user.timezone, role: user.role, nickname: user.nickname, avatarUrl: user.avatarUrl, hasMiniOpenid: Boolean(user.miniOpenid) };
+    return { id: user.id, username: user.username, timezone: user.timezone, role: user.role, nickname: user.nickname, avatarUrl: user.avatarUrl, hasMiniOpenid: Boolean(user.miniOpenid), needsProfile: !user.nickname || !user.avatarUrl };
   }
 }
