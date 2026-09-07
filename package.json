@@ -14,6 +14,7 @@
     "db:generate": "npm run db:generate -w @wechatsend/backend",
     "db:migrate": "npm run db:migrate -w @wechatsend/backend",
     "db:deploy": "npm run db:deploy -w @wechatsend/backend",
+    "content:seed": "npm run content:seed -w @wechatsend/backend",
     "connections:check": "npm run connections:check -w @wechatsend/backend",
     "user:create": "npm run user:create -w @wechatsend/backend --"
   },
