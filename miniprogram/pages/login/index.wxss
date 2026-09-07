@@ -1,0 +1,4 @@
+.login { box-sizing: border-box; min-height: 100vh; padding: 160rpx 36rpx 60rpx; background: #f7f7f5; }
+.brand { display: flex; width: 80rpx; height: 80rpx; align-items: center; justify-content: center; margin-bottom: 48rpx; border-radius: 16rpx; background: #0a0a0a; color: white; font-family: monospace; font-weight: 700; }
+.form { margin-top: 56rpx; }
+.submit { margin-top: 40rpx; }

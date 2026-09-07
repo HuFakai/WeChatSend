@@ -1,0 +1,6 @@
+<view class="page"><view class="eyebrow">OVERVIEW</view><view class="title">工作台</view><view class="subtitle">账号、好友与邮件投递，一目了然。</view>
+  <view class="stats"><view class="card stat"><text>发送账号</text><text class="number">{{summary.accounts || 0}}</text></view><view class="card stat"><text>好友备注</text><text class="number">{{summary.friends || 0}}</text></view><view class="card stat"><text>全部任务</text><text class="number">{{summary.tasks || 0}}</text></view><view class="card stat dark"><text>邮件已发送</text><text class="number">{{accepted}}</text></view></view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="button create" bindtap="newTask">创建发送任务</button>
+  <view class="card links"><view class="link" bindtap="accounts">发送账号<text>›</text></view><view class="divider"/><view class="link" bindtap="friends">好友管理<text>›</text></view></view>
+</view>

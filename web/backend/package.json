@@ -1,0 +1,45 @@
+{
+  "name": "@wechatsend/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/src/main.js",
+    "start:dev": "nest start --watch",
+    "worker": "node dist/src/worker.js",
+    "worker:dev": "tsx watch src/worker.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "tsx scripts/prisma-command.ts generate",
+    "db:migrate": "tsx scripts/prisma-command.ts migrate dev",
+    "db:deploy": "tsx scripts/prisma-command.ts migrate deploy",
+    "user:create": "tsx scripts/create-user.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@prisma/client": "^6.16.2",
+    "bcryptjs": "^3.0.2",
+    "bullmq": "^5.58.5",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.2",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.7.0",
+    "nodemailer": "^7.0.6",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.5.2",
+    "@types/nodemailer": "^7.0.1",
+    "prisma": "^6.16.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

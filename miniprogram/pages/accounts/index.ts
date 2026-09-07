@@ -1,0 +1,12 @@
+import { patch, post, request } from '../../services/api';
+Page({
+  data: { items: [] as any[], showForm: false, editingId: '', busy: false, error: '', form: { name: '', recipientEmail: '', subject: 'WeChatSend', minDelay: 10, maxDelay: 15 } },
+  onShow() { void this.load(); },
+  async load() { try { this.setData({ items: await request<any[]>('/accounts') }); } catch (e) { this.setData({ error: (e as Error).message }); } },
+  toggleForm() { this.setData({ showForm: !this.data.showForm, editingId: '', form: { name: '', recipientEmail: '', subject: 'WeChatSend', minDelay: 10, maxDelay: 15 } }); },
+  edit(e: any) { const item = this.data.items[e.currentTarget.dataset.index]; this.setData({ showForm: true, editingId: item.id, form: { name: item.name, recipientEmail: item.recipientEmail, subject: item.subject, minDelay: item.minDelay, maxDelay: item.maxDelay } }); },
+  formInput(e: any) { const key = e.currentTarget.dataset.key; this.setData({ [`form.${key}`]: ['minDelay','maxDelay'].includes(key) ? Number(e.detail.value) : e.detail.value }); },
+  async create() { if (this.data.form.minDelay < 10 || this.data.form.maxDelay < 10 || this.data.form.minDelay > this.data.form.maxDelay) return this.setData({ error: '发送间隔至少 10 秒，且最小值不能大于最大值' }); this.setData({ busy: true, error: '' }); try { if (this.data.editingId) await patch(`/accounts/${this.data.editingId}`, this.data.form); else await post('/accounts', this.data.form); this.setData({ showForm: false, editingId: '', form: { name: '', recipientEmail: '', subject: 'WeChatSend', minDelay: 10, maxDelay: 15 } }); await this.load(); } catch (e) { this.setData({ error: (e as Error).message }); } finally { this.setData({ busy: false }); } },
+  async verify(e: any) { const id = e.currentTarget.dataset.id; try { await post(`/accounts/${id}/verification`); wx.showModal({ title: '输入验证码', editable: true, placeholderText: '6 位验证码', success: async (result) => { if (!result.confirm) return; try { await post(`/accounts/${id}/verification/confirm`, { code: result.content }); wx.showToast({ title: '验证成功' }); await this.load(); } catch (error) { wx.showToast({ title: (error as Error).message, icon: 'none' }); } } }); } catch (error) { this.setData({ error: (error as Error).message }); } },
+  async toggle(e: any) { await patch(`/accounts/${e.currentTarget.dataset.id}`, { status: e.currentTarget.dataset.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' }); await this.load(); },
+});

@@ -1,0 +1,32 @@
+import { Plus, Search, UserRound, UsersRound, X } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { api, patch, post } from '@/lib/api';
+import { Account, Friend } from '@/types';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { EmptyState, ErrorState, LoadingState } from '@/components/states';
+import { StatusBadge } from '@/components/status';
+
+function splitRemarks(value: string) { return value.split(/[，,；;\n\t]+/).map((item) => item.trim()).filter(Boolean); }
+
+export function FriendsPage() {
+  const [accounts, setAccounts] = useState<Account[]>(); const [accountId, setAccountId] = useState('');
+  const [items, setItems] = useState<Friend[]>(); const [search, setSearch] = useState(''); const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false); const [raw, setRaw] = useState(''); const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Friend>(); const [editingRemark, setEditingRemark] = useState('');
+  useEffect(() => { api<Account[]>('/accounts').then((data) => { setAccounts(data); setAccountId((id) => id || data[0]?.id || ''); }).catch((e) => setError(e.message)); }, []);
+  const load = () => { if (!accountId) return; api<Friend[]>(`/accounts/${accountId}/friends`).then(setItems).catch((e) => setError(e.message)); };
+  useEffect(load, [accountId]);
+  const visible = useMemo(() => items?.filter((item) => item.remark.toLowerCase().includes(search.toLowerCase())), [items, search]);
+  const submit = async (event: FormEvent) => { event.preventDefault(); const remarks = splitRemarks(raw); if (!remarks.length) return; setBusy(true); try { await post(`/accounts/${accountId}/friends/bulk`, { remarks }); setRaw(''); setShowForm(false); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
+  const toggle = async (friend: Friend) => { await patch(`/friends/${friend.id}`, { status: friend.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' }); await load(); };
+  const saveEdit = async () => { if (!editing || !editingRemark.trim()) return; setBusy(true); try { await patch(`/friends/${editing.id}`, { remark: editingRemark }); setEditing(undefined); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
+  const parsed = splitRemarks(raw);
+  return <div className="page-enter space-y-6"><header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="font-mono text-[11px] uppercase tracking-[.22em] text-neutral-400">Contacts</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.03em]">好友管理</h1><p className="mt-2 text-sm text-neutral-500">好友以微信备注匹配，同一个发送账号下不可重名。</p></div><Button disabled={!accountId} onClick={() => setShowForm(true)}><Plus className="h-4 w-4" />添加好友</Button></header>{error && <ErrorState message={error} />}
+    <Card className="flex flex-col gap-3 p-4 sm:flex-row"><select className="select sm:max-w-xs" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">选择发送账号</option>{accounts?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select><label className="relative flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-neutral-400" /><Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索好友备注" /></label></Card>
+    {!accounts || (accountId && !items) ? <LoadingState /> : !accountId ? <EmptyState title="请先添加发送账号" detail="好友必须归属于一个发送账号。" /> : visible?.length === 0 ? <EmptyState title={search ? '没有匹配的好友' : '还没有好友'} detail={search ? '换一个关键词试试。' : '可用逗号、分号、换行一次粘贴多个微信好友备注。'} action={!search ? { label: '添加好友', onClick: () => setShowForm(true) } : undefined} /> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible?.map((friend) => <Card key={friend.id} className="flex items-center gap-4 p-4"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100"><UserRound className="h-4 w-4" /></span><div className="min-w-0 flex-1"><p className="truncate font-medium">{friend.remark}</p><div className="mt-1"><StatusBadge status={friend.status} /></div></div><div className="flex"><Button variant="ghost" size="sm" onClick={() => { setEditing(friend); setEditingRemark(friend.remark); }}>编辑</Button><Button variant="ghost" size="sm" onClick={() => toggle(friend)}>{friend.status === 'ACTIVE' ? '停用' : '启用'}</Button></div></Card>)}</div>}
+    {showForm && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 sm:items-center sm:p-4" onClick={() => setShowForm(false)}><Card className="w-full max-w-xl rounded-b-none p-6 shadow-2xl sm:rounded-xl" onClick={(e) => e.stopPropagation()}><div className="flex items-start justify-between"><div><h2 className="text-xl font-semibold">批量添加好友</h2><p className="mt-1 text-sm text-neutral-500">中英文逗号、分号或换行均可识别。</p></div><Button variant="ghost" size="icon" onClick={() => setShowForm(false)}><X className="h-4 w-4" /></Button></div><form className="mt-6" onSubmit={submit}><label><span className="field-label">微信好友备注</span><textarea className="textarea min-h-44" value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={'凯旋，宇航\n张经理；李老师'} /></label><div className="mt-4 flex items-center justify-between rounded-lg bg-neutral-100 px-4 py-3 text-sm"><span className="flex items-center gap-2"><UsersRound className="h-4 w-4" />已识别 {parsed.length} 个备注</span><span className="text-xs text-neutral-500">重复项自动跳过</span></div><Button className="mt-5 w-full" disabled={busy || !parsed.length}>{busy ? '正在导入…' : `确认导入 ${parsed.length} 位好友`}</Button></form></Card></div>}
+    {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onClick={() => setEditing(undefined)}><Card className="w-full max-w-sm p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}><h2 className="text-xl font-semibold">编辑好友备注</h2><p className="mt-2 text-sm text-neutral-500">请同步修改微信中的好友备注，保持完全一致。</p><label className="mt-6 block"><span className="field-label">微信好友备注</span><Input value={editingRemark} onChange={(e) => setEditingRemark(e.target.value)} /></label><div className="mt-5 flex gap-3"><Button variant="outline" className="flex-1" onClick={() => setEditing(undefined)}>取消</Button><Button className="flex-1" disabled={busy} onClick={saveEdit}>保存</Button></div></Card></div>}
+  </div>;
+}

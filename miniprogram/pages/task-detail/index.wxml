@@ -1,0 +1,46 @@
+<view class="page" wx:if="{{task}}">
+  <view class="eyebrow">DISPATCH DETAIL</view>
+  <view class="row between title-row">
+    <view class="title task-title">{{task.title}}</view>
+    <view class="badge">{{statusText[task.status] || task.status}}</view>
+  </view>
+  <view class="subtitle">{{task.scheduledAtText}}</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+
+  <view class="summary">
+    <view class="card stat"><text class="muted small">总计</text><text class="number">{{task.messages.length}}</text></view>
+    <view class="card stat"><text class="muted small">邮件已发送</text><text class="number">{{accepted}}</text></view>
+    <view class="card stat"><text class="muted small">微信反馈成功</text><text class="number">{{feedbackSuccess}}</text></view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">消息正文</view>
+    <view class="message">{{task.content}}</view>
+  </view>
+
+  <view class="card list">
+    <view class="card-title heading">逐条邮件记录</view>
+    <view wx:for="{{task.messages}}" wx:key="id" class="record">
+      <view class="record-top">
+        <view>
+          <view class="record-name">{{item.friendRemark}}</view>
+          <view class="record-id">{{item.messageId}}</view>
+        </view>
+        <view class="record-action">
+          <view class="badge">{{messageText[item.status] || item.status}}</view>
+          <view class="badge">{{item.feedbackText}}</view>
+        </view>
+      </view>
+      <view class="record-times">
+        <view><text>计划入队</text><text>{{item.readyAtText}}</text></view>
+        <view><text>开始发信</text><text>{{item.mailStartedAtText}}</text></view>
+        <view><text>邮件发送时间</text><text>{{item.acceptedAtText}}</text></view>
+        <view><text>反馈结果时间</text><text>{{item.feedbackReceivedAtText}}</text></view>
+      </view>
+      <view wx:if="{{item.feedbackError || item.errorMessage}}" class="record-error">{{item.feedbackError || item.errorMessage}}</view>
+      <button wx:if="{{item.status === 'FAILED' || item.status === 'UNKNOWN'}}" class="button secondary retry" data-id="{{item.id}}" data-name="{{item.friendRemark}}" bindtap="resend">人工重发</button>
+    </view>
+  </view>
+  <view class="subtitle interval-note">同一微信账号会在上一封邮件发送结束后，再按设置的间隔继续。</view>
+  <button wx:if="{{task.status === 'RUNNING' || task.status === 'SCHEDULED'}}" class="button secondary cancel" bindtap="cancel">取消剩余邮件</button>
+</view>

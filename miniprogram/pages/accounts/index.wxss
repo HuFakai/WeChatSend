@@ -1,0 +1,2 @@
+.delay { display: grid; grid-template-columns: 1fr 1fr; gap: 20rpx; }.submit { margin-top: 34rpx; }.email { margin-top: 8rpx; }.meta { display: flex; gap: 30rpx; margin-top: 26rpx; color: #737373; font-family: monospace; font-size: 22rpx; }.actions { display: flex; align-items: center; justify-content: space-between; margin-top: 28rpx; }.verified { color: #047857; font-size: 22rpx; }
+.action { margin-left: 10rpx; }

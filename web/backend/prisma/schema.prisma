@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum FriendStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TaskStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum MessageStatus {
+  PENDING
+  SENDING
+  ACCEPTED
+  RETRY_WAIT
+  FAILED
+  UNKNOWN
+  NEEDS_REVIEW
+  CANCELLED
+  SKIPPED
+}
+
+enum AttemptStatus {
+  STARTED
+  ACCEPTED
+  FAILED
+  UNKNOWN
+}
+
+enum FeedbackStatus {
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id           String          @id @default(uuid()) @db.Uuid
+  username     String          @unique
+  passwordHash String          @map("password_hash")
+  timezone     String          @default("Asia/Shanghai")
+  status       UserStatus      @default(ACTIVE)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  sessions     Session[]
+  accounts     WechatAccount[]
+  friends      Friend[]
+  tasks        Task[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model WechatAccount {
+  id                String        @id @default(uuid()) @db.Uuid
+  ownerId           String        @map("owner_id") @db.Uuid
+  name              String
+  recipientEmail    String        @map("recipient_email")
+  subject           String        @default("WeChatSend")
+  minDelay          Int           @default(10) @map("min_delay")
+  maxDelay          Int           @default(15) @map("max_delay")
+  emailVerifiedAt   DateTime?     @map("email_verified_at")
+  verificationHash  String?       @map("verification_hash")
+  verificationUntil DateTime?     @map("verification_until")
+  status            AccountStatus @default(ACTIVE)
+  configVersion     Int           @default(1) @map("config_version")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  owner             User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  friends           Friend[]
+  taskSettings      TaskAccountSetting[]
+  messages          TaskMessage[]
+  dispatchState     AccountDispatchState?
+
+  @@unique([ownerId, recipientEmail])
+  @@index([ownerId, status])
+  @@map("wechat_accounts")
+}
+
+model Friend {
+  id        String       @id @default(uuid()) @db.Uuid
+  ownerId   String       @map("owner_id") @db.Uuid
+  accountId String       @map("account_id") @db.Uuid
+  remark    String
+  remarkKey String       @map("remark_key")
+  status    FriendStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  account   WechatAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages  TaskMessage[]
+
+  @@unique([accountId, remarkKey])
+  @@index([ownerId, accountId, status])
+  @@map("friends")
+}
+
+model Task {
+  id             String       @id @default(uuid()) @db.Uuid
+  ownerId        String       @map("owner_id") @db.Uuid
+  title          String
+  content        String
+  scheduledAt    DateTime     @map("scheduled_at")
+  status         TaskStatus   @default(SCHEDULED)
+  idempotencyKey String       @map("idempotency_key")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  accountSettings TaskAccountSetting[]
+  messages       TaskMessage[]
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, createdAt])
+  @@map("tasks")
+}
+
+model TaskAccountSetting {
+  id             String @id @default(uuid()) @db.Uuid
+  taskId         String @map("task_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  recipientEmail String @map("recipient_email")
+  subject        String
+  configVersion  Int    @map("config_version")
+  minDelay       Int    @map("min_delay")
+  maxDelay       Int    @map("max_delay")
+  task           Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  account        WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, accountId])
+  @@map("task_account_settings")
+}
+
+model TaskMessage {
+  id             String        @id @default(uuid()) @db.Uuid
+  messageId      String        @unique @map("message_id")
+  taskId         String        @map("task_id") @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  friendId       String        @map("friend_id") @db.Uuid
+  friendRemark   String        @map("friend_remark")
+  content        String
+  recipientEmail String        @map("recipient_email")
+  subject        String
+  minDelay       Int           @map("min_delay")
+  maxDelay       Int           @map("max_delay")
+  configVersion  Int           @map("config_version")
+  status         MessageStatus @default(PENDING)
+  readyAt        DateTime      @map("ready_at")
+  dispatchReservedAt DateTime? @map("dispatch_reserved_at")
+  acceptedAt     DateTime?     @map("accepted_at")
+  feedbackStatus FeedbackStatus? @map("feedback_status")
+  feedbackReceivedAt DateTime? @map("feedback_received_at")
+  feedbackError  String?       @map("feedback_error")
+  errorCode      String?       @map("error_code")
+  errorMessage   String?       @map("error_message")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  task           Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  account        WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  friend         Friend        @relation(fields: [friendId], references: [id], onDelete: Restrict)
+  attempts       DeliveryAttempt[]
+
+  @@unique([taskId, accountId, friendId])
+  @@index([accountId, status, readyAt])
+  @@index([taskId, status])
+  @@map("task_messages")
+}
+
+model DeliveryAttempt {
+  id               String        @id @default(uuid()) @db.Uuid
+  messageId        String        @map("message_id") @db.Uuid
+  sequence         Int
+  status           AttemptStatus @default(STARTED)
+  providerMessageId String?       @map("provider_message_id")
+  errorCode        String?       @map("error_code")
+  errorMessage     String?       @map("error_message")
+  startedAt        DateTime      @default(now()) @map("started_at")
+  completedAt      DateTime?     @map("completed_at")
+  message          TaskMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, sequence])
+  @@map("delivery_attempts")
+}
+
+model AccountDispatchState {
+  accountId     String   @id @map("account_id") @db.Uuid
+  nextAllowedAt DateTime @default(now()) @map("next_allowed_at")
+  lockedMessageId String? @map("locked_message_id") @db.Uuid
+  lockedUntil   DateTime? @map("locked_until")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  account       WechatAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("account_dispatch_states")
+}
+
+model OutboxEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  type        String
+  aggregateId String   @map("aggregate_id") @db.Uuid
+  payload     Json
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([processedAt, createdAt])
+  @@map("outbox_events")
+}

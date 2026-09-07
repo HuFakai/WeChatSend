@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/login/index",
+    "pages/index/index",
+    "pages/accounts/index",
+    "pages/friends/index",
+    "pages/tasks/index",
+    "pages/task-new/index",
+    "pages/task-detail/index",
+    "pages/mine/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "WeChatSend",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f7f5"
+  },
+  "tabBar": {
+    "color": "#737373",
+    "selectedColor": "#000000",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "工作台" },
+      { "pagePath": "pages/tasks/index", "text": "任务" },
+      { "pagePath": "pages/mine/index", "text": "我的" }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

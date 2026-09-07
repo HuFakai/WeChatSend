@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+!web/deploy/.env.production.example
+coverage/
+*.log
+*.tsbuildinfo
+.idea/
+.vscode/
+web/backend/prisma/dev.db*
+miniprogram/miniprogram_npm/
+miniprogram/project.private.config.json
+web/frontend/vite.config.js
+web/frontend/vite.config.d.ts

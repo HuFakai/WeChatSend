@@ -1,0 +1,27 @@
+{
+  "name": "wechatsend",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "web/frontend",
+    "web/backend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n WEB,API,WORKER -c white,cyan,magenta \"npm run dev -w @wechatsend/frontend\" \"npm run start:dev -w @wechatsend/backend\" \"npm run worker:dev -w @wechatsend/backend\"",
+    "build": "npm run build -w @wechatsend/backend && npm run build -w @wechatsend/frontend",
+    "typecheck": "npm run typecheck -w @wechatsend/backend && npm run typecheck -w @wechatsend/frontend",
+    "test": "npm run test -w @wechatsend/backend && npm run test -w @wechatsend/frontend",
+    "db:generate": "npm run db:generate -w @wechatsend/backend",
+    "db:migrate": "npm run db:migrate -w @wechatsend/backend",
+    "db:deploy": "npm run db:deploy -w @wechatsend/backend",
+    "user:create": "npm run user:create -w @wechatsend/backend --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "miniprogram-api-typings": "^5.0.0",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

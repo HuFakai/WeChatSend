@@ -1,0 +1,2 @@
+.picker { display: flex; justify-content: space-between; padding: 24rpx 28rpx; font-size: 26rpx; }.remarks { margin-top: 28rpx; }.count { margin: 18rpx 0; }.friend { display: flex; align-items: center; gap: 22rpx; }.avatar { display: flex; width: 72rpx; height: 72rpx; align-items: center; justify-content: center; border-radius: 50%; background: #f0f0ee; font-weight: 600; }.info { flex: 1; min-width: 0; font-size: 28rpx; }
+.friend-action { margin-top: 8rpx; }
