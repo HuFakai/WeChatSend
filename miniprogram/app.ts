@@ -7,6 +7,7 @@ App({
     const token = wx.getStorageSync('wechatsend_token');
     if (token) {
       if (scene) wx.redirectTo({ url: `/pages/pay/index?scene=${encodeURIComponent(decodeURIComponent(scene))}` });
+      else wx.switchTab({ url: '/pages/index/index' });
       return;
     }
     wx.login({
