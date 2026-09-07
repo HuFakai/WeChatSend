@@ -9,7 +9,9 @@
     "pages/tasks/index",
     "pages/task-new/index",
     "pages/task-detail/index",
-    "pages/mine/index"
+    "pages/mine/index",
+    "pages/ai/index",
+    "pages/pay/index"
   ],
   "window": {
     "navigationBarTitleText": "WeChatSend",

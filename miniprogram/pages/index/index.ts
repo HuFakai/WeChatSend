@@ -6,4 +6,5 @@ Page({
   newTask() { wx.navigateTo({ url: '/pages/task-new/index' }); },
   accounts() { wx.navigateTo({ url: '/pages/accounts/index' }); },
   friends() { wx.navigateTo({ url: '/pages/friends/index' }); },
+  ai() { wx.navigateTo({ url: '/pages/ai/index' }); },
 });

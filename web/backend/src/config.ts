@@ -18,6 +18,17 @@ const schema = z.object({
   SMTP_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   DEFAULT_TRIGGER_SUBJECT: z.string().default('WeChatSend'),
   VERIFY_SUBJECT: z.string().default('WeChatSend 邮箱验证（请勿触发快捷指令）'),
+  APP_ENCRYPTION_KEY: z.string().min(32).optional(),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+  WECHAT_MINI_APPID: z.string().min(1).optional(),
+  WECHAT_MINI_SECRET: z.string().min(1).optional(),
+  WECHAT_MINI_ENV_VERSION: z.enum(['develop', 'trial', 'release']).default('release'),
+  WECHAT_PAY_MCH_ID: z.string().min(1).optional(),
+  WECHAT_PAY_SERIAL_NO: z.string().min(1).optional(),
+  WECHAT_PAY_PRIVATE_KEY: z.string().min(1).optional(),
+  WECHAT_PAY_API_V3_KEY: z.string().length(32).optional(),
+  WECHAT_PAY_PLATFORM_CERT: z.string().min(1).optional(),
+  WECHAT_PAY_NOTIFY_URL: z.string().url().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

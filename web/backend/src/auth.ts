@@ -3,6 +3,7 @@ import {
   CanActivate,
   Controller,
   ExecutionContext,
+  ForbiddenException,
   Get,
   Injectable,
   Post,
@@ -20,6 +21,19 @@ import { PrismaService } from './prisma.service';
 import { ZodPipe } from './zod.pipe';
 
 export type AuthRequest = Request & { user: User; sessionId: string };
+
+export function assertAdmin(request: AuthRequest) {
+  if (request.user.role !== 'ADMIN') throw new ForbiddenException('仅管理员可操作');
+}
+
+export async function issueSession(prisma: PrismaService, userId: string) {
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + config().SESSION_TTL_DAYS * 86_400_000);
+  await prisma.resilient(() => prisma.session.create({
+    data: { userId, tokenHash: hashToken(token), expiresAt },
+  }));
+  return { token, expiresAt };
+}
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -60,12 +74,8 @@ export class AuthController {
       throw new UnauthorizedException('账号或密码错误');
     }
 
-    const token = randomToken();
-    const expiresAt = new Date(Date.now() + config().SESSION_TTL_DAYS * 86_400_000);
-    await this.prisma.resilient(() => this.prisma.session.create({
-      data: { userId: user.id, tokenHash: hashToken(token), expiresAt },
-    }));
-    return { token, expiresAt, user: { id: user.id, username: user.username, timezone: user.timezone } };
+    const session = await issueSession(this.prisma, user.id);
+    return { ...session, user: { id: user.id, username: user.username, timezone: user.timezone, role: user.role, nickname: user.nickname, avatarUrl: user.avatarUrl } };
   }
 
   @UseGuards(AuthGuard)
@@ -78,7 +88,7 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Get('me')
   me(@Req() request: AuthRequest) {
-    const { id, username, timezone } = request.user;
-    return { id, username, timezone };
+    const { id, username, timezone, role, nickname, avatarUrl, miniOpenid } = request.user;
+    return { id, username, timezone, role, nickname, avatarUrl, hasMiniOpenid: Boolean(miniOpenid) };
   }
 }

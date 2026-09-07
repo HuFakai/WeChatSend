@@ -1,0 +1,1 @@
+.order-title { margin-top: 12rpx; font-size: 32rpx; font-weight: 600; }.amount { margin: 52rpx 0 12rpx; font-family: monospace; font-size: 64rpx; font-weight: 700; }.submit { margin-top: 48rpx; }.success { text-align: center; }

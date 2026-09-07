@@ -58,3 +58,28 @@ export type TaskMessage = {
     completedAt: string | null;
   }>;
 };
+
+export type AiOptions = {
+  models: Array<{ id: string; name: string; displayName: string; channelName: string }>;
+  features: Record<string, boolean>;
+};
+
+export type AiChannel = {
+  id: string;
+  name: string;
+  type: string;
+  baseUrl: string;
+  isActive: boolean;
+  hasApiKey: boolean;
+  models: Array<{ id: string; name: string; displayName: string | null; isActive: boolean }>;
+};
+
+export type ApiIntegration = {
+  id: string;
+  name: string;
+  url: string;
+  method: string;
+  requestParams: Record<string, unknown> | null;
+  enabled: boolean;
+  variables: Array<{ id: string; name: string; displayName: string; responsePath: string }>;
+};

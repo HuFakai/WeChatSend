@@ -12,6 +12,11 @@ enum UserStatus {
   DISABLED
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 enum AccountStatus {
   ACTIVE
   DISABLED
@@ -67,11 +72,35 @@ enum VariableMode {
   SEQUENCE
 }
 
+enum AiChannelType {
+  OPENAI_COMPATIBLE
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  CLOSED
+  REFUNDED
+}
+
 model User {
   id                String             @id @default(uuid()) @db.Uuid
   username          String             @unique
   passwordHash      String             @map("password_hash")
+  role              UserRole           @default(USER)
   timezone          String             @default("Asia/Shanghai")
+  miniOpenid        String?            @unique @map("mini_openid")
+  miniUnionid       String?            @map("mini_unionid")
+  nickname          String?
+  avatarUrl         String?            @map("avatar_url")
   status            UserStatus         @default(ACTIVE)
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
@@ -85,8 +114,103 @@ model User {
   templateFavorites TemplateFavorite[]
   variables         CustomVariable[]
   drafts            TaskDraft[]
+  paymentOrders     PaymentOrder[]
 
   @@map("users")
+}
+
+model AiChannel {
+  id              String         @id @default(uuid()) @db.Uuid
+  name            String
+  type            AiChannelType  @default(OPENAI_COMPATIBLE)
+  baseUrl         String         @map("base_url")
+  encryptedApiKey String         @map("encrypted_api_key")
+  isActive        Boolean        @default(true) @map("is_active")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  models          AiModel[]
+
+  @@index([isActive, updatedAt])
+  @@map("ai_channels")
+}
+
+model AiModel {
+  id           String     @id @default(uuid()) @db.Uuid
+  channelId    String     @map("channel_id") @db.Uuid
+  name         String
+  displayName  String?    @map("display_name")
+  isActive     Boolean    @default(true) @map("is_active")
+  contextWindow Int?      @map("context_window")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  channel      AiChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, name])
+  @@index([isActive, channelId])
+  @@map("ai_models")
+}
+
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean  @default(false)
+  config    Json?
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+model ApiIntegration {
+  id              String                   @id @default(uuid()) @db.Uuid
+  name            String
+  url             String
+  method          HttpMethod
+  encryptedHeaders String?                 @map("encrypted_headers")
+  requestParams   Json?                    @map("request_params")
+  enabled         Boolean                  @default(true)
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  variables       ApiIntegrationVariable[]
+
+  @@index([enabled, updatedAt])
+  @@map("api_integrations")
+}
+
+model ApiIntegrationVariable {
+  id            String         @id @default(uuid()) @db.Uuid
+  integrationId String         @map("integration_id") @db.Uuid
+  name          String
+  displayName   String         @map("display_name")
+  responsePath  String         @map("response_path")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  integration   ApiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, name])
+  @@index([name])
+  @@map("api_integration_variables")
+}
+
+model PaymentOrder {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String?       @map("user_id") @db.Uuid
+  sceneToken  String?       @unique @map("scene_token")
+  outTradeNo  String        @unique @map("out_trade_no")
+  openid      String?
+  description String
+  amountFen   Int           @map("amount_fen")
+  status      PaymentStatus @default(PENDING)
+  prepayId    String?       @map("prepay_id")
+  transactionId String?     @map("transaction_id")
+  notifyAt    DateTime?     @map("notify_at")
+  expiresAt   DateTime      @map("expires_at")
+  notifyRaw   Json?         @map("notify_raw")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  user        User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("payment_orders")
 }
 
 model Session {

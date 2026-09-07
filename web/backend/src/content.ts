@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
 
-export const BUILT_IN_VARIABLES = ['date', 'time', 'weekday', 'friend_name'] as const;
+export const BUILT_IN_VARIABLES = ['date', 'time', 'weekday', 'friend_name', 'random_quote', 'warm_greeting'] as const;
 const BUILT_INS = new Set<string>(BUILT_IN_VARIABLES);
 const TOKEN = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g;
+const BUILT_IN_LISTS: Record<string, string[]> = {
+  random_quote: ['把每一次沟通都做成长期关系的开始。', '认真服务每一位客户，时间会给出答案。', '好产品值得被看见，好关系值得被维护。'],
+  warm_greeting: ['愿你今天顺利，也愿每一次努力都有回响。', '新的一天，愿你心情明朗、事事顺意。', '愿生活有惊喜，工作有收获。'],
+};
 
 export type FrozenVariable = {
   id: string;
@@ -52,7 +56,11 @@ export function renderContent(input: {
   };
 
   const content = input.template.replace(TOKEN, (_token, name: string) => {
-    if (BUILT_INS.has(name)) return builtIn[name];
+    if (BUILT_INS.has(name)) {
+      if (name in builtIn) return builtIn[name];
+      const values = BUILT_IN_LISTS[name];
+      return values[stableIndex(input.seed, name, input.recipientOrder, values.length)];
+    }
     if (resolved.has(name)) return resolved.get(name)!;
     const variable = custom.get(name);
     if (!variable?.values.length) throw new Error(`变量 {{${name}}} 不存在或没有候选值`);

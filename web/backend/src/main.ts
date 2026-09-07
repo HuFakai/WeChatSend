@@ -7,7 +7,7 @@ import { config } from './config';
 
 async function bootstrap() {
   const cfg = config();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.enableCors({ origin: cfg.APP_ORIGIN.split(',').map((item) => item.trim()), credentials: false });

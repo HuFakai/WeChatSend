@@ -16,6 +16,7 @@ import { AuthGuard, AuthRequest } from './auth';
 import { feedbackDisplayState, FrozenVariable, referencedVariables, renderContent, unknownVariables } from './content';
 import { assertSafeTagValue } from './lib';
 import { PrismaService } from './prisma.service';
+import { ExternalApiService } from './external-api';
 import { ZodPipe } from './zod.pipe';
 
 const selectionSchema = z.object({
@@ -45,7 +46,7 @@ const resendSchema = z.object({ idempotencyKey: z.string().min(8).max(100) });
 @Controller('tasks')
 @UseGuards(AuthGuard)
 export class TasksController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly externalApi: ExternalApiService) {}
 
   @Get()
   list(@Req() request: AuthRequest) {
@@ -322,6 +323,9 @@ export class TasksController {
       id: variable.id, name: variable.name, displayName: variable.displayName, mode: variable.mode,
       version: variable.version, values: variable.values.map((value) => value.value),
     }));
+    const customNames = new Set(variables.map((variable) => variable.name));
+    const externalVariables = await this.externalApi.resolveVariables(names.filter((name) => !customNames.has(name)));
+    variables.push(...externalVariables);
     const unknown = unknownVariables(body.content, variables);
     if (unknown.length) throw new BadRequestException(`未知变量：${unknown.map((name) => `{{${name}}}`).join('、')}`);
     if (variables.some((variable) => !variable.values.length)) throw new BadRequestException('变量候选值不能为空');

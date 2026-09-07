@@ -1,12 +1,11 @@
 <view class="login">
   <view class="brand">WS</view>
-  <view class="eyebrow">PRIVATE BETA</view>
-  <view class="title">登录 WeChatSend</view>
-  <view class="subtitle">使用管理员提供的内测账号</view>
+  <view class="eyebrow">WECHAT IDENTITY</view>
+  <view class="title">进入 WeChatSend</view>
+  <view class="subtitle">使用微信身份登录，昵称和头像只用于显示与账号绑定。</view>
   <view class="card form">
-    <text class="label">账号</text><input class="input" placeholder="请输入账号" value="{{username}}" bindinput="usernameInput" />
-    <text class="label">密码</text><input class="input" password placeholder="至少 8 位" value="{{password}}" bindinput="passwordInput" />
     <view wx:if="{{error}}" class="error">{{error}}</view>
-    <button class="button submit" loading="{{loading}}" bindtap="login">登录</button>
+    <button class="button submit" loading="{{loading}}" bindtap="login">微信授权并登录</button>
+    <view class="note">首次进入会创建平台账号；不会把 session_key 返回给小程序。</view>
   </view>
 </view>

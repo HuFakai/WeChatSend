@@ -11,12 +11,12 @@ import { Account, CustomVariable, Friend, MessageTemplate, Segment, Task, TaskDr
 
 type Selection = { account: Account; friends: Friend[]; groups: Segment[]; tags: Segment[]; selected: Set<string>; minDelay: number; maxDelay: number };
 type Preview = { renderSeed: string; previewFingerprint: string; recipients: Array<{ friendRemark: string; content: string }> };
-const builtIns = [{ name: 'friend_name', label: '好友称呼' }, { name: 'date', label: '日期' }, { name: 'time', label: '时间' }, { name: 'weekday', label: '星期' }];
+const builtIns = [{ name: 'friend_name', label: '好友称呼' }, { name: 'date', label: '日期' }, { name: 'time', label: '时间' }, { name: 'weekday', label: '星期' }, { name: 'random_quote', label: '随机语录' }, { name: 'warm_greeting', label: '温馨问候' }];
 
 function localDateTimeValue(date = new Date()) { const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 
 export function TaskNewPage() {
-  const navigate = useNavigate(); const [params] = useSearchParams(); const draftId = params.get('draft'); const templateParam = params.get('template');
+  const navigate = useNavigate(); const [params] = useSearchParams(); const draftId = params.get('draft'); const templateParam = params.get('template'); const contentParam = params.get('content');
   const [step, setStep] = useState(1); const [accounts, setAccounts] = useState<Account[]>(); const [selections, setSelections] = useState<Record<string, Selection>>({});
   const [templates, setTemplates] = useState<MessageTemplate[]>([]); const [variables, setVariables] = useState<CustomVariable[]>([]); const [templateId, setTemplateId] = useState<string | null>(null);
   const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [timing, setTiming] = useState<'now'|'later'>('now'); const [scheduledAt, setScheduledAt] = useState(localDateTimeValue());
@@ -31,6 +31,7 @@ export function TaskNewPage() {
     setAccounts(active); setTemplates(templateData); setVariables(variableData);
     const selectedTemplate = templateData.find((item) => item.id === templateParam);
     if (selectedTemplate) { setTemplateId(selectedTemplate.id); setContent(selectedTemplate.content); setTitle(selectedTemplate.title); }
+    if (contentParam && !draft) setContent(contentParam);
     if (draft) {
       setTitle(draft.title); setContent(draft.content); setTemplateId(draft.payload.templateId ?? null);
       if (draft.payload.renderSeed) setRenderSeed(draft.payload.renderSeed);
@@ -41,7 +42,7 @@ export function TaskNewPage() {
       }
     }
     setSelections(result);
-  } catch (reason) { setError((reason as Error).message); } })(); }, [draftId, templateParam]);
+  } catch (reason) { setError((reason as Error).message); } })(); }, [contentParam, draftId, templateParam]);
 
   const total = useMemo(() => Object.values(selections).reduce((sum, item) => sum + item.selected.size, 0), [selections]);
   const toggle = (accountId: string, friendId: string) => setSelections((current) => { const selected = new Set(current[accountId].selected); selected.has(friendId) ? selected.delete(friendId) : selected.add(friendId); return { ...current, [accountId]: { ...current[accountId], selected } }; });

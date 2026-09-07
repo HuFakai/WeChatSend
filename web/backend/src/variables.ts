@@ -21,8 +21,15 @@ export class VariablesController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  list(@Req() request: AuthRequest) {
-    return this.prisma.customVariable.findMany({ where: { ownerId: request.user.id }, orderBy: { updatedAt: 'desc' }, include: { values: { orderBy: { position: 'asc' } } } });
+  async list(@Req() request: AuthRequest) {
+    const [custom, external] = await Promise.all([
+      this.prisma.customVariable.findMany({ where: { ownerId: request.user.id }, orderBy: { updatedAt: 'desc' }, include: { values: { orderBy: { position: 'asc' } } } }),
+      this.prisma.apiIntegrationVariable.findMany({ where: { integration: { enabled: true } }, include: { integration: true }, orderBy: { updatedAt: 'desc' } }),
+    ]);
+    const names = new Set(custom.map((item) => item.name));
+    return [...custom, ...external.filter((item, index, all) => !names.has(item.name) && all.findIndex((candidate) => candidate.name === item.name) === index).map((item) => ({
+      id: `api:${item.id}`, name: item.name, displayName: `${item.displayName} · ${item.integration.name}`, mode: 'FIXED' as const, version: Math.floor(item.updatedAt.getTime() / 1000), values: [], source: 'API' as const,
+    }))];
   }
 
   @Post()
