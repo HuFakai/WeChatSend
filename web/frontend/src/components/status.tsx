@@ -6,10 +6,11 @@ const labels: Record<string, string> = {
   ACCEPTED: '邮件已发送', RETRY_WAIT: '等待重试', UNKNOWN: '结果待核实',
   NEEDS_REVIEW: '配置待复核', SKIPPED: '已跳过', ACTIVE: '使用中', DISABLED: '已停用',
   FEEDBACK_SUCCESS: '微信发送成功', FEEDBACK_FAILED: '微信发送失败', FEEDBACK_PENDING: '等待微信反馈',
+  FEEDBACK_TIMEOUT: '微信发送失败', FEEDBACK_NOT_SENT: '等待邮件发送',
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const danger = ['FAILED', 'UNKNOWN', 'NEEDS_REVIEW', 'FEEDBACK_FAILED'].includes(status);
+  const danger = ['FAILED', 'UNKNOWN', 'NEEDS_REVIEW', 'FEEDBACK_FAILED', 'FEEDBACK_TIMEOUT'].includes(status);
   const success = ['ACCEPTED', 'COMPLETED', 'ACTIVE', 'FEEDBACK_SUCCESS'].includes(status);
   return <Badge className={danger ? 'border-red-200 bg-red-50 text-red-700' : success ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : ''}>{labels[status] ?? status}</Badge>;
 }

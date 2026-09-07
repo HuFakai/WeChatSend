@@ -34,7 +34,9 @@ Page({
   onLoad(options: any) {
     this.setData({ id: options.id });
     void this.load();
+    (this as any).feedbackTimer = setInterval(() => void this.load(), 5000);
   },
+  onUnload() { clearInterval((this as any).feedbackTimer); },
   onShow() {
     if (this.data.id) void this.load();
   },
@@ -50,11 +52,12 @@ Page({
           mailStartedAtText: formatTime(latestAttempt?.startedAt),
           acceptedAtText: formatTime(message.acceptedAt),
           feedbackReceivedAtText: formatTime(message.feedbackReceivedAt),
-          feedbackText: message.feedbackStatus === 'SUCCESS'
+          feedbackText: message.feedbackState === 'SUCCESS'
             ? '微信发送成功'
-            : message.feedbackStatus === 'FAILED'
+            : message.feedbackState === 'FAILED' || message.feedbackState === 'TIMEOUT'
               ? '微信发送失败'
-              : '等待微信反馈',
+              : message.feedbackState === 'NOT_SENT' ? '等待邮件发送' : '等待微信反馈',
+          feedbackHint: message.feedbackState === 'TIMEOUT' ? '超过 1 分钟未收到微信反馈，请确认该好友的微信备注是否正确。' : '',
         };
       });
       this.setData({
@@ -97,5 +100,10 @@ Page({
         }
       },
     });
+  },
+  copyTask() {
+    void post<any>(`/tasks/${this.data.id}/copy`).then((draft) => {
+      wx.navigateTo({ url: `/pages/task-new/index?draft=${draft.id}` });
+    }).catch((error) => wx.showToast({ title: error.message, icon: 'none' }));
   },
 });

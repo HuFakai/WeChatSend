@@ -1,5 +1,5 @@
 // 真机调试及发布时改为已备案、配置 request 合法域名的 HTTPS API。
-const API_BASE = 'http://127.0.0.1:3100/api/v1';
+const API_BASE = 'https://aichat.aisenno.com/api/v1';
 
 export function request<T>(path: string, method: 'GET' | 'POST' = 'GET', data?: unknown): Promise<T> {
   return new Promise((resolve, reject) => {

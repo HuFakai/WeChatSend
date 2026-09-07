@@ -17,7 +17,7 @@ import { assertSafeTagValue, normalizeRemark } from './lib';
 import { PrismaService } from './prisma.service';
 import { ZodPipe } from './zod.pipe';
 
-const friendSchema = z.object({ remark: z.string().min(1).max(100) });
+const friendSchema = z.object({ remark: z.string().min(1).max(100), salutation: z.string().trim().max(100).optional().nullable() });
 const patchFriendSchema = friendSchema.partial().extend({ status: z.enum(['ACTIVE', 'DISABLED']).optional() });
 const bulkSchema = z.object({ remarks: z.array(z.string()).min(1).max(1000) });
 
@@ -40,6 +40,10 @@ export class FriendsController {
       },
       orderBy: [{ status: 'asc' }, { remark: 'asc' }],
       take: 500,
+      include: {
+        groupMemberships: { select: { groupId: true } },
+        tagMemberships: { select: { tagId: true } },
+      },
     });
   }
 
@@ -53,7 +57,7 @@ export class FriendsController {
     const remark = normalizeRemark(body.remark);
     this.validateRemark(remark);
     return this.prisma.friend.create({
-      data: { ownerId: request.user.id, accountId, remark, remarkKey: remark },
+      data: { ownerId: request.user.id, accountId, remark, remarkKey: remark, salutation: body.salutation || null },
     });
   }
 

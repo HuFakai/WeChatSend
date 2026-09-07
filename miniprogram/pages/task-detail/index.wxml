@@ -37,10 +37,11 @@
         <view><text>邮件发送时间</text><text>{{item.acceptedAtText}}</text></view>
         <view><text>反馈结果时间</text><text>{{item.feedbackReceivedAtText}}</text></view>
       </view>
-      <view wx:if="{{item.feedbackError || item.errorMessage}}" class="record-error">{{item.feedbackError || item.errorMessage}}</view>
+      <view wx:if="{{item.feedbackHint || item.feedbackError || item.errorMessage}}" class="record-error">{{item.feedbackHint || item.feedbackError || item.errorMessage}}</view>
       <button wx:if="{{item.status === 'FAILED' || item.status === 'UNKNOWN'}}" class="button secondary retry" data-id="{{item.id}}" data-name="{{item.friendRemark}}" bindtap="resend">人工重发</button>
     </view>
   </view>
   <view class="subtitle interval-note">同一微信账号会在上一封邮件发送结束后，再按设置的间隔继续。</view>
   <button wx:if="{{task.status === 'RUNNING' || task.status === 'SCHEDULED'}}" class="button secondary cancel" bindtap="cancel">取消剩余邮件</button>
+  <button class="button secondary cancel" bindtap="copyTask">复制为新任务</button>
 </view>

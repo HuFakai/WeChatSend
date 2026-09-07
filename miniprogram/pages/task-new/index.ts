@@ -1,120 +1,27 @@
-import { post, request } from '../../services/api';
-
-function pad(value: number) {
-  return String(value).padStart(2, '0');
-}
+import { patch, post, request } from '../../services/api';
+const pad = (value: number) => String(value).padStart(2, '0');
+const seed = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 Page({
-  data: {
-    title: '',
-    content: '',
-    selections: [] as any[],
-    total: 0,
-    timing: 'now',
-    date: '',
-    time: '',
-    busy: false,
-    error: '',
-  },
-  onLoad() {
-    const now = new Date();
-    this.setData({
-      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-    });
-    void this.init();
-  },
-  async init() {
-    try {
-      const accounts = (await request<any[]>('/accounts')).filter((account) => account.status === 'ACTIVE');
-      const selections = await Promise.all(accounts.map(async (account) => ({
-        ...account,
-        friends: (await request<any[]>(`/accounts/${account.id}/friends`))
-          .filter((friend) => friend.status === 'ACTIVE')
-          .map((friend) => ({ ...friend, selected: false })),
-        selectedCount: 0,
-      })));
-      this.setData({ selections });
-    } catch (error) {
-      this.setData({ error: (error as Error).message });
-    }
-  },
-  titleInput(event: any) {
-    this.setData({ title: event.detail.value });
-  },
-  contentInput(event: any) {
-    this.setData({ content: event.detail.value });
-  },
-  toggleFriend(event: any) {
-    const accountIndex = event.currentTarget.dataset.accountIndex;
-    const friendIndex = event.currentTarget.dataset.friendIndex;
-    const key = `selections[${accountIndex}].friends[${friendIndex}].selected`;
-    const selected = !this.data.selections[accountIndex].friends[friendIndex].selected;
-    const count = this.data.selections[accountIndex].selectedCount + (selected ? 1 : -1);
-    this.setData({
-      [key]: selected,
-      [`selections[${accountIndex}].selectedCount`]: count,
-      total: this.data.total + (selected ? 1 : -1),
-    });
-  },
-  delayInput(event: any) {
-    this.setData({
-      [`selections[${event.currentTarget.dataset.accountIndex}].${event.currentTarget.dataset.key}`]:
-        Number(event.detail.value),
-    });
-  },
-  timingChange(event: any) {
-    const timing = event.currentTarget.dataset.value;
-    if (timing === 'later') {
-      const now = new Date();
-      this.setData({
-        timing,
-        date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-        time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-      });
-      return;
-    }
-    this.setData({ timing });
-  },
-  dateChange(event: any) {
-    this.setData({ date: event.detail.value });
-  },
-  timeChange(event: any) {
-    this.setData({ time: event.detail.value });
-  },
-  async submit() {
-    if (!this.data.title.trim() || !this.data.content.trim()) {
-      return this.setData({ error: '请填写任务名称和消息内容' });
-    }
-    if (!this.data.total) return this.setData({ error: '请至少选择一位好友' });
-    const invalidDelay = this.data.selections.some((selection) => selection.selectedCount
-      && (selection.minDelay < 10 || selection.maxDelay < 10 || selection.minDelay > selection.maxDelay));
-    if (invalidDelay) return this.setData({ error: '发送间隔至少 10 秒，且最小值不能大于最大值' });
-
-    this.setData({ busy: true, error: '' });
-    try {
-      const body: any = {
-        title: this.data.title,
-        content: this.data.content,
-        idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        selections: this.data.selections
-          .filter((selection) => selection.selectedCount)
-          .map((selection) => ({
-            accountId: selection.id,
-            friendIds: selection.friends.filter((friend: any) => friend.selected).map((friend: any) => friend.id),
-            minDelay: Number(selection.minDelay),
-            maxDelay: Number(selection.maxDelay),
-          })),
-      };
-      if (this.data.timing === 'later') {
-        body.scheduledAt = new Date(`${this.data.date}T${this.data.time}:00+08:00`).toISOString();
-      }
-      const task = await post<any>('/tasks', body);
-      wx.redirectTo({ url: `/pages/task-detail/index?id=${task.id}` });
-    } catch (error) {
-      this.setData({ error: (error as Error).message });
-    } finally {
-      this.setData({ busy: false });
-    }
-  },
+  data: { title: '', content: '', selections: [] as any[], total: 0, timing: 'now', date: '', time: '', templates: [] as any[], templateNames: ['不使用模板'], templateIndex: 0, variables: [] as any[], builtIns: [{ name: 'friend_name', label: '好友称呼' }, { name: 'date', label: '日期' }, { name: 'time', label: '时间' }, { name: 'weekday', label: '星期' }], renderSeed: seed(), draftId: '', busy: false, error: '' },
+  onLoad(options: any) { const now = new Date(); this.setData({ date: `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}:${pad(now.getMinutes())}`, draftId: options.draft || '' }); void this.init(options); },
+  async init(options: any) { try {
+    const [accounts, templates, variables, draft] = await Promise.all([request<any[]>('/accounts'), request<any[]>('/templates'), request<any[]>('/variables'), options.draft ? request<any>(`/drafts/${options.draft}`) : Promise.resolve(null)]);
+    const active = accounts.filter((account) => account.status === 'ACTIVE');
+    const selections = await Promise.all(active.map(async (account) => ({ ...account, friends: (await request<any[]>(`/accounts/${account.id}/friends`)).filter((friend) => friend.status === 'ACTIVE').map((friend) => ({ ...friend, selected: false })), groups: await request<any[]>(`/accounts/${account.id}/groups`), tags: await request<any[]>(`/accounts/${account.id}/tags`), selectedCount: 0 })));
+    let title = this.data.title; let content = this.data.content; let templateIndex = 0; let timing = this.data.timing; let date = this.data.date; let time = this.data.time; let renderSeed = this.data.renderSeed;
+    const chosen = templates.find((item) => item.id === options.template); if (chosen) { title = chosen.title; content = chosen.content; templateIndex = templates.indexOf(chosen) + 1; }
+    if (draft) { title = draft.title; content = draft.content; renderSeed = draft.payload.renderSeed || renderSeed; templateIndex = templates.findIndex((item) => item.id === draft.payload.templateId) + 1; if (draft.scheduledAt) { const scheduled = new Date(draft.scheduledAt); timing = 'later'; date = `${scheduled.getFullYear()}-${pad(scheduled.getMonth()+1)}-${pad(scheduled.getDate())}`; time = `${pad(scheduled.getHours())}:${pad(scheduled.getMinutes())}`; } for (const saved of draft.payload.selections || []) { const selection = selections.find((item) => item.id === saved.accountId); if (!selection) continue; selection.friends.forEach((friend: any) => { friend.selected = saved.friendIds.includes(friend.id); }); selection.selectedCount = selection.friends.filter((friend: any) => friend.selected).length; selection.minDelay = saved.minDelay || selection.minDelay; selection.maxDelay = saved.maxDelay || selection.maxDelay; } }
+    this.setData({ selections, templates, templateNames: ['不使用模板', ...templates.map((item) => `${item.scope === 'PLATFORM' ? '精选' : '我的'} · ${item.title}`)], variables, title, content, templateIndex, timing, date, time, renderSeed, total: selections.reduce((sum,item) => sum + item.selectedCount,0) });
+  } catch (error) { this.setData({ error: (error as Error).message }); } },
+  titleInput(e: any) { this.setData({ title: e.detail.value }); }, contentInput(e: any) { this.setData({ content: e.detail.value }); },
+  templateChange(e: any) { const templateIndex = Number(e.detail.value); const template = this.data.templates[templateIndex-1]; this.setData({ templateIndex, ...(template ? { content: template.content, title: this.data.title || template.title } : {}) }); },
+  insertVariable(e: any) { const token = `{{${e.currentTarget.dataset.name}}}`; this.setData({ content: `${this.data.content}${this.data.content ? ' ' : ''}${token}` }); },
+  toggleFriend(e: any) { const ai=e.currentTarget.dataset.accountIndex, fi=e.currentTarget.dataset.friendIndex, selected=!this.data.selections[ai].friends[fi].selected, count=this.data.selections[ai].selectedCount+(selected?1:-1); this.setData({ [`selections[${ai}].friends[${fi}].selected`]:selected, [`selections[${ai}].selectedCount`]:count, total:this.data.total+(selected?1:-1) }); },
+  selectSegment(e: any) { const ai=e.currentTarget.dataset.accountIndex, kind=e.currentTarget.dataset.kind, index=e.currentTarget.dataset.index, segment=this.data.selections[ai][kind][index], ids=new Set(segment.friendIds), friends=this.data.selections[ai].friends, all=segment.friendIds.length>0&&friends.filter((f:any)=>ids.has(f.id)).every((f:any)=>f.selected); let delta=0; friends.forEach((friend:any,fi:number)=>{ if(!ids.has(friend.id))return; const next=!all; if(friend.selected!==next){delta+=next?1:-1; this.setData({[`selections[${ai}].friends[${fi}].selected`]:next});} }); this.setData({[`selections[${ai}].selectedCount`]:this.data.selections[ai].selectedCount+delta,total:this.data.total+delta}); },
+  delayInput(e:any){this.setData({[`selections[${e.currentTarget.dataset.accountIndex}].${e.currentTarget.dataset.key}`]:Number(e.detail.value)});}, timingChange(e:any){this.setData({timing:e.currentTarget.dataset.value});}, dateChange(e:any){this.setData({date:e.detail.value});}, timeChange(e:any){this.setData({time:e.detail.value});},
+  body() { const body:any={title:this.data.title,content:this.data.content,templateId:this.data.templateIndex?this.data.templates[this.data.templateIndex-1]?.id:null,renderSeed:this.data.renderSeed,selections:this.data.selections.filter((s:any)=>s.selectedCount).map((s:any)=>({accountId:s.id,friendIds:s.friends.filter((f:any)=>f.selected).map((f:any)=>f.id),groupIds:[],tagIds:[],minDelay:Number(s.minDelay),maxDelay:Number(s.maxDelay)}))}; if(this.data.timing==='later')body.scheduledAt=new Date(`${this.data.date}T${this.data.time}:00+08:00`).toISOString(); return body; },
+  validate(){if(!this.data.title.trim()||!this.data.content.trim())return'请填写任务名称和消息内容';if(!this.data.total)return'请至少选择一位好友';if(this.data.selections.some((s:any)=>s.selectedCount&&(s.minDelay<10||s.maxDelay<10||s.minDelay>s.maxDelay)))return'发送间隔至少 10 秒';return'';},
+  async saveDraft(){this.setData({busy:true,error:''});try{const draft=this.data.draftId?await patch<any>(`/drafts/${this.data.draftId}`,this.body()):await post<any>('/drafts',this.body());this.setData({draftId:draft.id});wx.showToast({title:'草稿已保存'});}catch(error){this.setData({error:(error as Error).message});}finally{this.setData({busy:false});}},
+  async submit(){const issue=this.validate();if(issue)return this.setData({error:issue});this.setData({busy:true,error:''});try{const body=this.body();const preview=await post<any>('/tasks/preview',body);const sample=preview.recipients[0];wx.showModal({title:`确认发送给 ${preview.recipients.length} 人？`,content:`${sample.friendRemark}：\n${sample.content}${preview.recipients.length>1?'\n\n其余好友将按相同规则生成文案。':''}`,confirmText:'确认发送',success:async(result)=>{if(!result.confirm){this.setData({busy:false});return;}try{const task=await post<any>('/tasks',{...body,previewFingerprint:preview.previewFingerprint,idempotencyKey:seed()});if(this.data.draftId)await post(`/drafts/${this.data.draftId}/delete`).catch(()=>undefined);wx.redirectTo({url:`/pages/task-detail/index?id=${task.id}`});}catch(error){this.setData({error:(error as Error).message,busy:false});}}});}catch(error){this.setData({error:(error as Error).message,busy:false});}},
 });

@@ -1,6 +1,8 @@
 # WeChatSend
 
-通过服务端邮件队列触发 iPhone 快捷指令，向指定微信好友发送文本消息。当前代码处于 P1 MVP。
+通过服务端邮件队列触发 iPhone 快捷指令，向指定微信好友发送文本消息。P1 MVP 已完成真实链路验证，当前代码已实现 P2 客户与内容能力。
+
+P2 新增好友分组/标签、平台及个人模板、收藏与复制、内置及自定义变量、稳定文案预览、任务草稿和历史任务复制。Web 与微信小程序共享同一套接口和数据。
 
 ## 本地启动
 
@@ -29,6 +31,8 @@ docker compose -f web/deploy/docker-compose.yml up -d redis
 
 开发数据库需要创建新迁移时使用 `npm run db:migrate -- --name 迁移名称`；普通部署只执行 `npm run db:deploy`。
 
+从 P1 升级到 P2 必须执行 `npm run db:deploy`，以创建模板、变量、分组、标签、草稿相关表并写入首批平台模板。
+
 Web 默认运行于 `http://localhost:5173`，API 默认运行于 `http://localhost:3100/api/v1`。
 
 ## Docker 线上部署
@@ -46,6 +50,7 @@ Content-Type: application/json
 ```
 
 `TASK_ID` 是每封好友邮件唯一的 UUID；同一批任务 ID 单独存放在 `BATCH_ID`。
+邮件发送成功后 1 分钟仍未收到快捷指令反馈时，任务详情会将该好友标记为“微信发送失败”，并提示核对微信好友备注；迟到的有效反馈仍会覆盖超时显示。
 
 ## 安全提醒
 

@@ -10,27 +10,35 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { MessageStatus, Prisma, TaskStatus } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AuthGuard, AuthRequest } from './auth';
+import { feedbackDisplayState, FrozenVariable, referencedVariables, renderContent, unknownVariables } from './content';
 import { assertSafeTagValue } from './lib';
 import { PrismaService } from './prisma.service';
 import { ZodPipe } from './zod.pipe';
 
 const selectionSchema = z.object({
   accountId: z.string().uuid(),
-  friendIds: z.array(z.string().uuid()).min(1).max(5000),
+  friendIds: z.array(z.string().uuid()).max(5000).default([]),
+  groupIds: z.array(z.string().uuid()).max(500).default([]),
+  tagIds: z.array(z.string().uuid()).max(500).default([]),
   minDelay: z.number().int().min(10).max(3600).optional(),
   maxDelay: z.number().int().min(10).max(3600).optional(),
-});
+}).refine((value) => value.friendIds.length + value.groupIds.length + value.tagIds.length > 0, '请至少选择好友、分组或标签');
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(100),
   content: z.string().min(1).max(10000),
   scheduledAt: z.string().datetime().optional(),
+  templateId: z.string().uuid().optional().nullable(),
+  renderSeed: z.string().min(8).max(100).optional(),
+  previewFingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   idempotencyKey: z.string().min(8).max(100),
   selections: z.array(selectionSchema).min(1).max(100),
 });
+
+const previewTaskSchema = createTaskSchema.omit({ idempotencyKey: true });
 
 const resendSchema = z.object({ idempotencyKey: z.string().min(8).max(100) });
 
@@ -72,7 +80,34 @@ export class TasksController {
       },
     });
     if (!task) throw new NotFoundException('任务不存在');
-    return task;
+    const now = new Date();
+    return {
+      ...task,
+      messages: task.messages.map((message) => ({
+        ...message,
+        feedbackState: feedbackDisplayState({ acceptedAt: message.acceptedAt, feedbackStatus: message.feedbackStatus, now }),
+        feedbackDeadlineAt: message.acceptedAt ? new Date(message.acceptedAt.getTime() + 60_000) : null,
+      })),
+    };
+  }
+
+  @Post('preview')
+  async preview(
+    @Req() request: AuthRequest,
+    @Body(new ZodPipe(previewTaskSchema)) body: z.infer<typeof previewTaskSchema>,
+  ) {
+    const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
+    const prepared = await this.prepare(request.user.id, body, scheduledAt, body.renderSeed ?? randomUUID());
+    return {
+      renderSeed: prepared.seed,
+      previewFingerprint: this.fingerprint(prepared.seed, prepared.messageRows),
+      recipients: prepared.messageRows.map((message) => ({
+        accountId: message.accountId, friendId: message.friendId, friendRemark: message.friendRemark,
+        recipientOrder: message.recipientOrder, content: message.content,
+      })),
+      variableSnapshot: prepared.variableSnapshot,
+      templateSnapshot: prepared.templateSnapshot,
+    };
   }
 
   @Post()
@@ -80,6 +115,11 @@ export class TasksController {
     @Req() request: AuthRequest,
     @Body(new ZodPipe(createTaskSchema)) body: z.infer<typeof createTaskSchema>,
   ) {
+    const existing = await this.prisma.task.findUnique({
+      where: { ownerId_idempotencyKey: { ownerId: request.user.id, idempotencyKey: body.idempotencyKey } },
+      select: { id: true },
+    });
+    if (existing) return this.detail(request, existing.id);
     try {
       assertSafeTagValue(body.content);
     } catch (error) {
@@ -88,63 +128,21 @@ export class TasksController {
     const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
     if (scheduledAt.getTime() < Date.now() - 60_000) throw new BadRequestException('定时时间不能早于当前时间');
 
-    const dedupedSelections = new Map<string, z.infer<typeof selectionSchema>>();
-    for (const selection of body.selections) {
-      const current = dedupedSelections.get(selection.accountId);
-      dedupedSelections.set(selection.accountId, {
-        ...selection,
-        friendIds: [...new Set([...(current?.friendIds ?? []), ...selection.friendIds])],
-      });
-    }
-    const selections = [...dedupedSelections.values()];
-    const accountIds = selections.map((selection) => selection.accountId);
-    const accounts = await this.prisma.wechatAccount.findMany({
-      where: { id: { in: accountIds }, ownerId: request.user.id, status: 'ACTIVE' },
-    });
-    if (accounts.length !== accountIds.length) throw new BadRequestException('包含不存在或已停用的发送账号');
-    if (accounts.some((account) => !account.emailVerifiedAt)) throw new BadRequestException('请先完成所有发送账号的邮箱验证');
-
-    const accountMap = new Map(accounts.map((account) => [account.id, account]));
-    const allFriendIds = selections.flatMap((selection) => selection.friendIds);
-    const friends = await this.prisma.friend.findMany({
-      where: { id: { in: allFriendIds }, ownerId: request.user.id, status: 'ACTIVE' },
-    });
-    const friendMap = new Map(friends.map((friend) => [friend.id, friend]));
-    if (friendMap.size !== new Set(allFriendIds).size) throw new BadRequestException('包含不存在或已停用的好友');
-    for (const selection of selections) {
-      if (selection.friendIds.some((id) => friendMap.get(id)?.accountId !== selection.accountId)) {
-        throw new BadRequestException('好友与发送账号不匹配');
-      }
-      const account = accountMap.get(selection.accountId)!;
-      const min = selection.minDelay ?? account.minDelay;
-      const max = selection.maxDelay ?? account.maxDelay;
-      if (min < 10 || max < 10) throw new BadRequestException('发送间隔不能小于 10 秒');
-      if (min > max) throw new BadRequestException('最小间隔不能大于最大间隔');
-    }
-
     const taskId = randomUUID();
+    const prepared = await this.prepare(request.user.id, body, scheduledAt, body.renderSeed ?? taskId);
+    if (body.previewFingerprint && body.previewFingerprint !== this.fingerprint(prepared.seed, prepared.messageRows)) {
+      throw new BadRequestException('预览内容已变化，请重新预览后再提交');
+    }
+    const { selections, accountMap, messageRows, templateSnapshot, variableSnapshot, seed } = prepared;
     const now = new Date();
     const status: TaskStatus = scheduledAt > now ? 'SCHEDULED' : 'RUNNING';
-    const messageRows = selections.flatMap((selection) => {
-      const account = accountMap.get(selection.accountId)!;
-      const minDelay = selection.minDelay ?? account.minDelay;
-      const maxDelay = selection.maxDelay ?? account.maxDelay;
-      return selection.friendIds.map((friendId) => {
-        const friend = friendMap.get(friendId)!;
-        return {
-          id: randomUUID(), messageId: randomUUID(), taskId, accountId: account.id, friendId,
-          friendRemark: friend.remark, content: body.content, recipientEmail: account.recipientEmail,
-          subject: account.subject, minDelay, maxDelay, configVersion: account.configVersion,
-          readyAt: scheduledAt,
-        };
-      });
-    });
 
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.task.create({
           data: {
             id: taskId, ownerId: request.user.id, title: body.title, content: body.content,
+            contentTemplate: body.content, templateSnapshot, variableSnapshot, randomSeed: seed,
             scheduledAt, status, idempotencyKey: body.idempotencyKey,
           },
         });
@@ -159,7 +157,7 @@ export class TasksController {
             };
           }),
         });
-        await tx.taskMessage.createMany({ data: messageRows });
+        await tx.taskMessage.createMany({ data: messageRows.map((message) => ({ ...message, taskId })) });
         await tx.outboxEvent.createMany({
           data: messageRows.map((message) => ({
             type: 'TASK_MESSAGE_READY', aggregateId: message.id,
@@ -177,6 +175,31 @@ export class TasksController {
       throw error;
     }
     return this.detail(request, taskId);
+  }
+
+  @Post(':id/copy')
+  async copy(@Req() request: AuthRequest, @Param('id') id: string) {
+    const task = await this.prisma.task.findFirst({
+      where: { id, ownerId: request.user.id },
+      include: { accountSettings: true, messages: { orderBy: { recipientOrder: 'asc' } } },
+    });
+    if (!task) throw new NotFoundException('任务不存在');
+    const settings = new Map(task.accountSettings.map((item) => [item.accountId, item]));
+    const selections = [...new Set(task.messages.map((message) => message.accountId))].map((accountId) => ({
+      accountId,
+      friendIds: task.messages.filter((message) => message.accountId === accountId).map((message) => message.friendId),
+      groupIds: [], tagIds: [],
+      minDelay: settings.get(accountId)?.minDelay ?? 10,
+      maxDelay: settings.get(accountId)?.maxDelay ?? 15,
+    }));
+    const content = task.contentTemplate ?? task.content;
+    return this.prisma.taskDraft.create({ data: {
+      ownerId: request.user.id,
+      title: `副本：${task.title}`.slice(0, 100),
+      content,
+      sourceTaskId: task.id,
+      payload: { selections, templateId: null, renderSeed: randomUUID() } as Prisma.InputJsonValue,
+    } });
   }
 
   @Post(':id/cancel')
@@ -216,9 +239,124 @@ export class TasksController {
       selections: [{
         accountId: message.accountId,
         friendIds: [message.friendId],
+        groupIds: [],
+        tagIds: [],
         minDelay: message.minDelay,
         maxDelay: message.maxDelay,
       }],
     });
+  }
+
+  private async prepare(
+    ownerId: string,
+    body: z.infer<typeof previewTaskSchema>,
+    scheduledAt: Date,
+    seed: string,
+  ) {
+    try { assertSafeTagValue(body.content); } catch (error) { throw new BadRequestException((error as Error).message); }
+
+    const deduped = new Map<string, z.infer<typeof selectionSchema>>();
+    for (const selection of body.selections) {
+      const current = deduped.get(selection.accountId);
+      deduped.set(selection.accountId, {
+        ...selection,
+        friendIds: [...new Set([...(current?.friendIds ?? []), ...selection.friendIds])],
+        groupIds: [...new Set([...(current?.groupIds ?? []), ...selection.groupIds])],
+        tagIds: [...new Set([...(current?.tagIds ?? []), ...selection.tagIds])],
+      });
+    }
+    const selections = [...deduped.values()];
+    const accountIds = selections.map((selection) => selection.accountId);
+    const [accounts, owner] = await Promise.all([
+      this.prisma.wechatAccount.findMany({ where: { id: { in: accountIds }, ownerId, status: 'ACTIVE' } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: ownerId }, select: { timezone: true } }),
+    ]);
+    if (accounts.length !== accountIds.length) throw new BadRequestException('包含不存在或已停用的发送账号');
+    if (accounts.some((account) => !account.emailVerifiedAt)) throw new BadRequestException('请先完成所有发送账号的邮箱验证');
+    const accountMap = new Map(accounts.map((account) => [account.id, account]));
+
+    const groupIds = [...new Set(selections.flatMap((selection) => selection.groupIds))];
+    const tagIds = [...new Set(selections.flatMap((selection) => selection.tagIds))];
+    const [groups, tags] = await Promise.all([
+      this.prisma.friendGroup.findMany({ where: { id: { in: groupIds }, ownerId }, include: { members: { where: { friend: { status: 'ACTIVE' } }, orderBy: { friendId: 'asc' } } } }),
+      this.prisma.friendTag.findMany({ where: { id: { in: tagIds }, ownerId }, include: { members: { where: { friend: { status: 'ACTIVE' } }, orderBy: { friendId: 'asc' } } } }),
+    ]);
+    if (groups.length !== groupIds.length || tags.length !== tagIds.length) throw new BadRequestException('包含不存在的好友分组或标签');
+    const groupMap = new Map(groups.map((item) => [item.id, item]));
+    const tagMap = new Map(tags.map((item) => [item.id, item]));
+    for (const selection of selections) {
+      const expanded = [...selection.friendIds];
+      for (const id of selection.groupIds) {
+        const group = groupMap.get(id)!;
+        if (group.accountId !== selection.accountId) throw new BadRequestException('好友分组与发送账号不匹配');
+        expanded.push(...group.members.map((member) => member.friendId));
+      }
+      for (const id of selection.tagIds) {
+        const tag = tagMap.get(id)!;
+        if (tag.accountId !== selection.accountId) throw new BadRequestException('好友标签与发送账号不匹配');
+        expanded.push(...tag.members.map((member) => member.friendId));
+      }
+      selection.friendIds = [...new Set(expanded)];
+      if (!selection.friendIds.length) throw new BadRequestException('选择的分组或标签中没有启用好友');
+      if (selection.friendIds.length > 5000) throw new BadRequestException('单个发送账号一次最多展开 5000 位好友');
+      const account = accountMap.get(selection.accountId)!;
+      const min = selection.minDelay ?? account.minDelay;
+      const max = selection.maxDelay ?? account.maxDelay;
+      if (min < 10 || max < 10 || min > max) throw new BadRequestException('发送间隔至少 10 秒，且最小值不能大于最大值');
+    }
+
+    const allFriendIds = selections.flatMap((selection) => selection.friendIds);
+    const friends = await this.prisma.friend.findMany({ where: { id: { in: allFriendIds }, ownerId, status: 'ACTIVE' } });
+    const friendMap = new Map(friends.map((friend) => [friend.id, friend]));
+    if (friendMap.size !== new Set(allFriendIds).size) throw new BadRequestException('包含不存在或已停用的好友');
+    for (const selection of selections) {
+      if (selection.friendIds.some((id) => friendMap.get(id)?.accountId !== selection.accountId)) throw new BadRequestException('好友与发送账号不匹配');
+    }
+
+    const names = referencedVariables(body.content);
+    const variableRows = await this.prisma.customVariable.findMany({
+      where: { ownerId, name: { in: names } },
+      include: { values: { orderBy: { position: 'asc' } } },
+    });
+    const variables: FrozenVariable[] = variableRows.map((variable) => ({
+      id: variable.id, name: variable.name, displayName: variable.displayName, mode: variable.mode,
+      version: variable.version, values: variable.values.map((value) => value.value),
+    }));
+    const unknown = unknownVariables(body.content, variables);
+    if (unknown.length) throw new BadRequestException(`未知变量：${unknown.map((name) => `{{${name}}}`).join('、')}`);
+    if (variables.some((variable) => !variable.values.length)) throw new BadRequestException('变量候选值不能为空');
+
+    let templateSnapshot: Prisma.InputJsonValue | undefined;
+    if (body.templateId) {
+      const template = await this.prisma.messageTemplate.findFirst({ where: { id: body.templateId, isActive: true, OR: [{ scope: 'PLATFORM' }, { ownerId }] } });
+      if (!template) throw new BadRequestException('所选模板不存在或已停用');
+      templateSnapshot = { id: template.id, title: template.title, scope: template.scope, version: template.version, selectedContent: body.content };
+    }
+    const variableSnapshot = { version: 1, seed, variables } as Prisma.InputJsonValue;
+    let recipientOrder = 0;
+    const messageRows = selections.flatMap((selection) => {
+      const account = accountMap.get(selection.accountId)!;
+      return selection.friendIds.map((friendId) => {
+        const friend = friendMap.get(friendId)!;
+        const order = recipientOrder++;
+        const rendered = renderContent({ template: body.content, variables, friendRemark: friend.remark, salutation: friend.salutation, scheduledAt, timezone: owner.timezone, seed, recipientOrder: order });
+        try { assertSafeTagValue(rendered.content); } catch (error) { throw new BadRequestException((error as Error).message); }
+        return {
+          id: randomUUID(), messageId: randomUUID(), accountId: account.id, friendId,
+          friendRemark: friend.remark, content: rendered.content, recipientOrder: order,
+          recipientEmail: account.recipientEmail, subject: account.subject,
+          minDelay: selection.minDelay ?? account.minDelay, maxDelay: selection.maxDelay ?? account.maxDelay,
+          configVersion: account.configVersion, readyAt: scheduledAt,
+        };
+      });
+    });
+    return { seed, selections, accounts, accountMap, messageRows, templateSnapshot, variableSnapshot };
+  }
+
+  private fingerprint(seed: string, messages: Array<{ accountId: string; friendId: string; recipientOrder: number; content: string }>) {
+    return createHash('sha256').update(JSON.stringify({
+      seed,
+      recipients: messages.map(({ accountId, friendId, recipientOrder, content }) => ({ accountId, friendId, recipientOrder, content })),
+    })).digest('hex');
   }
 }

@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Clock3, MailCheck, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Ban, Clock3, Copy, MailCheck, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,13 @@ export function TaskDetailPage() {
     }
   };
 
+  const copyTask = async () => {
+    try {
+      const draft = await post<{ id: string }>(`/tasks/${id}/copy`);
+      navigate(`/tasks/new?draft=${draft.id}`);
+    } catch (reason) { setError((reason as Error).message); }
+  };
+
   if (error) return <ErrorState message={error} retry={load} />;
   if (!task) return <LoadingState />;
 
@@ -64,6 +71,7 @@ export function TaskDetailPage() {
           <p className="mt-2 font-mono text-xs text-neutral-400">{task.id}</p>
         </div>
         <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4" />刷新</Button>
+        <Button variant="outline" onClick={copyTask}><Copy className="h-4 w-4" />复制任务</Button>
         {['SCHEDULED', 'RUNNING'].includes(task.status) && (
           <Button variant="destructive" onClick={cancel}><Ban className="h-4 w-4" />取消剩余</Button>
         )}
@@ -98,8 +106,8 @@ export function TaskDetailPage() {
                       {message.friendRemark}
                     </p>
                     <p className="mt-1 break-all font-mono text-[11px] text-neutral-400">{message.messageId}</p>
-                    {(message.errorMessage || message.feedbackError) && (
-                      <p className="mt-2 text-xs text-red-600">{message.feedbackError || message.errorMessage}</p>
+                    {(message.errorMessage || message.feedbackError || message.feedbackState === 'TIMEOUT') && (
+                      <p className="mt-2 text-xs text-red-600">{message.feedbackState === 'TIMEOUT' ? '超过 1 分钟未收到微信反馈，请确认该好友的微信备注是否正确。' : message.feedbackError || message.errorMessage}</p>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs">
@@ -110,7 +118,7 @@ export function TaskDetailPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     <StatusBadge status={message.status} />
-                    <StatusBadge status={message.feedbackStatus ? `FEEDBACK_${message.feedbackStatus}` : 'FEEDBACK_PENDING'} />
+                    <StatusBadge status={`FEEDBACK_${message.feedbackState}`} />
                     {['FAILED', 'UNKNOWN'].includes(message.status) && (
                       <Button variant="outline" size="sm" onClick={() => resend(message)}>人工重发</Button>
                     )}

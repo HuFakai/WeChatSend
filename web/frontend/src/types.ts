@@ -15,8 +15,16 @@ export type Friend = {
   id: string;
   accountId: string;
   remark: string;
+  salutation: string | null;
   status: 'ACTIVE' | 'DISABLED';
+  groupMemberships?: Array<{ groupId: string }>;
+  tagMemberships?: Array<{ tagId: string }>;
 };
+
+export type Segment = { id: string; accountId: string; name: string; friendIds: string[] };
+export type MessageTemplate = { id: string; scope: 'PLATFORM' | 'USER'; title: string; content: string; category: string | null; version: number; favorite: boolean };
+export type CustomVariable = { id: string; name: string; displayName: string; mode: 'FIXED' | 'RANDOM' | 'SEQUENCE'; version: number; values: Array<{ id: string; value: string; position: number }> };
+export type TaskDraft = { id: string; title: string; content: string; scheduledAt: string | null; payload: { selections?: Array<{ accountId: string; friendIds: string[]; groupIds?: string[]; tagIds?: string[]; minDelay?: number; maxDelay?: number }>; templateId?: string | null; renderSeed?: string }; updatedAt: string };
 
 export type Task = {
   id: string;
@@ -39,6 +47,8 @@ export type TaskMessage = {
   feedbackStatus: 'SUCCESS' | 'FAILED' | null;
   feedbackReceivedAt: string | null;
   feedbackError: string | null;
+  feedbackState: 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'PENDING' | 'NOT_SENT';
+  feedbackDeadlineAt: string | null;
   errorMessage: string | null;
   attempts: Array<{
     id: string;

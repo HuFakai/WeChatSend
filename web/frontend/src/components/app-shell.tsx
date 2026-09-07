@@ -1,4 +1,4 @@
-import { BookUser, ChevronRight, LayoutDashboard, LogOut, Menu, MessageSquareText, Radio, Send, X } from 'lucide-react';
+import { BookOpenText, BookUser, Braces, ChevronRight, LayoutDashboard, LogOut, Menu, MessageSquareText, Radio, Send, X } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { setToken } from '@/lib/api';
@@ -9,6 +9,8 @@ const nav = [
   { to: '/', label: '工作台', icon: LayoutDashboard },
   { to: '/accounts', label: '发送账号', icon: Radio },
   { to: '/friends', label: '好友管理', icon: BookUser },
+  { to: '/templates', label: '文案模板', icon: BookOpenText },
+  { to: '/variables', label: '内容变量', icon: Braces },
   { to: '/tasks', label: '发送任务', icon: MessageSquareText },
 ];
 

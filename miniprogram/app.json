@@ -4,6 +4,8 @@
     "pages/index/index",
     "pages/accounts/index",
     "pages/friends/index",
+    "pages/templates/index",
+    "pages/variables/index",
     "pages/tasks/index",
     "pages/task-new/index",
     "pages/task-detail/index",

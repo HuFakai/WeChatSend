@@ -56,18 +56,35 @@ enum FeedbackStatus {
   FAILED
 }
 
+enum TemplateScope {
+  PLATFORM
+  USER
+}
+
+enum VariableMode {
+  FIXED
+  RANDOM
+  SEQUENCE
+}
+
 model User {
-  id           String          @id @default(uuid()) @db.Uuid
-  username     String          @unique
-  passwordHash String          @map("password_hash")
-  timezone     String          @default("Asia/Shanghai")
-  status       UserStatus      @default(ACTIVE)
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
-  sessions     Session[]
-  accounts     WechatAccount[]
-  friends      Friend[]
-  tasks        Task[]
+  id                String             @id @default(uuid()) @db.Uuid
+  username          String             @unique
+  passwordHash      String             @map("password_hash")
+  timezone          String             @default("Asia/Shanghai")
+  status            UserStatus         @default(ACTIVE)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  sessions          Session[]
+  accounts          WechatAccount[]
+  friends           Friend[]
+  tasks             Task[]
+  friendGroups      FriendGroup[]
+  friendTags        FriendTag[]
+  templates         MessageTemplate[]
+  templateFavorites TemplateFavorite[]
+  variables         CustomVariable[]
+  drafts            TaskDraft[]
 
   @@map("users")
 }
@@ -85,22 +102,24 @@ model Session {
 }
 
 model WechatAccount {
-  id                String        @id @default(uuid()) @db.Uuid
-  ownerId           String        @map("owner_id") @db.Uuid
+  id                String                @id @default(uuid()) @db.Uuid
+  ownerId           String                @map("owner_id") @db.Uuid
   name              String
-  recipientEmail    String        @map("recipient_email")
-  subject           String        @default("WeChatSend")
-  minDelay          Int           @default(10) @map("min_delay")
-  maxDelay          Int           @default(15) @map("max_delay")
-  emailVerifiedAt   DateTime?     @map("email_verified_at")
-  verificationHash  String?       @map("verification_hash")
-  verificationUntil DateTime?     @map("verification_until")
-  status            AccountStatus @default(ACTIVE)
-  configVersion     Int           @default(1) @map("config_version")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
-  owner             User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  recipientEmail    String                @map("recipient_email")
+  subject           String                @default("WeChatSend")
+  minDelay          Int                   @default(10) @map("min_delay")
+  maxDelay          Int                   @default(15) @map("max_delay")
+  emailVerifiedAt   DateTime?             @map("email_verified_at")
+  verificationHash  String?               @map("verification_hash")
+  verificationUntil DateTime?             @map("verification_until")
+  status            AccountStatus         @default(ACTIVE)
+  configVersion     Int                   @default(1) @map("config_version")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+  owner             User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   friends           Friend[]
+  groups            FriendGroup[]
+  tags              FriendTag[]
   taskSettings      TaskAccountSetting[]
   messages          TaskMessage[]
   dispatchState     AccountDispatchState?
@@ -111,36 +130,172 @@ model WechatAccount {
 }
 
 model Friend {
-  id        String       @id @default(uuid()) @db.Uuid
-  ownerId   String       @map("owner_id") @db.Uuid
-  accountId String       @map("account_id") @db.Uuid
-  remark    String
-  remarkKey String       @map("remark_key")
-  status    FriendStatus @default(ACTIVE)
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
-  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  account   WechatAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  messages  TaskMessage[]
+  id               String              @id @default(uuid()) @db.Uuid
+  ownerId          String              @map("owner_id") @db.Uuid
+  accountId        String              @map("account_id") @db.Uuid
+  remark           String
+  remarkKey        String              @map("remark_key")
+  salutation       String?
+  status           FriendStatus        @default(ACTIVE)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  owner            User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  account          WechatAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages         TaskMessage[]
+  groupMemberships FriendGroupMember[]
+  tagMemberships   FriendTagMember[]
 
   @@unique([accountId, remarkKey])
   @@index([ownerId, accountId, status])
   @@map("friends")
 }
 
+model FriendGroup {
+  id        String              @id @default(uuid()) @db.Uuid
+  ownerId   String              @map("owner_id") @db.Uuid
+  accountId String              @map("account_id") @db.Uuid
+  name      String
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+  owner     User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  account   WechatAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members   FriendGroupMember[]
+
+  @@unique([accountId, name])
+  @@index([ownerId, accountId])
+  @@map("friend_groups")
+}
+
+model FriendGroupMember {
+  groupId   String      @map("group_id") @db.Uuid
+  friendId  String      @map("friend_id") @db.Uuid
+  createdAt DateTime    @default(now()) @map("created_at")
+  group     FriendGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  friend    Friend      @relation(fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, friendId])
+  @@index([friendId])
+  @@map("friend_group_members")
+}
+
+model FriendTag {
+  id        String            @id @default(uuid()) @db.Uuid
+  ownerId   String            @map("owner_id") @db.Uuid
+  accountId String            @map("account_id") @db.Uuid
+  name      String
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+  owner     User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  account   WechatAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members   FriendTagMember[]
+
+  @@unique([accountId, name])
+  @@index([ownerId, accountId])
+  @@map("friend_tags")
+}
+
+model FriendTagMember {
+  tagId     String    @map("tag_id") @db.Uuid
+  friendId  String    @map("friend_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at")
+  tag       FriendTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  friend    Friend    @relation(fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@id([tagId, friendId])
+  @@index([friendId])
+  @@map("friend_tag_members")
+}
+
+model MessageTemplate {
+  id        String             @id @default(uuid()) @db.Uuid
+  ownerId   String?            @map("owner_id") @db.Uuid
+  scope     TemplateScope      @default(USER)
+  title     String
+  content   String
+  category  String?
+  version   Int                @default(1)
+  isActive  Boolean            @default(true) @map("is_active")
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+  owner     User?              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  favorites TemplateFavorite[]
+
+  @@index([ownerId, scope, isActive])
+  @@map("message_templates")
+}
+
+model TemplateFavorite {
+  ownerId    String          @map("owner_id") @db.Uuid
+  templateId String          @map("template_id") @db.Uuid
+  createdAt  DateTime        @default(now()) @map("created_at")
+  owner      User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, templateId])
+  @@map("template_favorites")
+}
+
+model CustomVariable {
+  id          String                @id @default(uuid()) @db.Uuid
+  ownerId     String                @map("owner_id") @db.Uuid
+  name        String
+  displayName String                @map("display_name")
+  mode        VariableMode
+  version     Int                   @default(1)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  owner       User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  values      CustomVariableValue[]
+
+  @@unique([ownerId, name])
+  @@index([ownerId, updatedAt])
+  @@map("custom_variables")
+}
+
+model CustomVariableValue {
+  id         String         @id @default(uuid()) @db.Uuid
+  variableId String         @map("variable_id") @db.Uuid
+  value      String
+  position   Int
+  variable   CustomVariable @relation(fields: [variableId], references: [id], onDelete: Cascade)
+
+  @@unique([variableId, position])
+  @@map("custom_variable_values")
+}
+
+model TaskDraft {
+  id           String    @id @default(uuid()) @db.Uuid
+  ownerId      String    @map("owner_id") @db.Uuid
+  title        String
+  content      String
+  scheduledAt  DateTime? @map("scheduled_at")
+  payload      Json
+  sourceTaskId String?   @map("source_task_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  owner        User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, updatedAt])
+  @@map("task_drafts")
+}
+
 model Task {
-  id             String       @id @default(uuid()) @db.Uuid
-  ownerId        String       @map("owner_id") @db.Uuid
-  title          String
-  content        String
-  scheduledAt    DateTime     @map("scheduled_at")
-  status         TaskStatus   @default(SCHEDULED)
-  idempotencyKey String       @map("idempotency_key")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  accountSettings TaskAccountSetting[]
-  messages       TaskMessage[]
+  id               String               @id @default(uuid()) @db.Uuid
+  ownerId          String               @map("owner_id") @db.Uuid
+  title            String
+  content          String
+  contentTemplate  String?              @map("content_template")
+  templateSnapshot Json?                @map("template_snapshot")
+  variableSnapshot Json?                @map("variable_snapshot")
+  randomSeed       String?              @map("random_seed")
+  scheduledAt      DateTime             @map("scheduled_at")
+  status           TaskStatus           @default(SCHEDULED)
+  idempotencyKey   String               @map("idempotency_key")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  owner            User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  accountSettings  TaskAccountSetting[]
+  messages         TaskMessage[]
 
   @@unique([ownerId, idempotencyKey])
   @@index([ownerId, createdAt])
@@ -148,15 +303,15 @@ model Task {
 }
 
 model TaskAccountSetting {
-  id             String @id @default(uuid()) @db.Uuid
-  taskId         String @map("task_id") @db.Uuid
-  accountId      String @map("account_id") @db.Uuid
-  recipientEmail String @map("recipient_email")
+  id             String        @id @default(uuid()) @db.Uuid
+  taskId         String        @map("task_id") @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  recipientEmail String        @map("recipient_email")
   subject        String
-  configVersion  Int    @map("config_version")
-  minDelay       Int    @map("min_delay")
-  maxDelay       Int    @map("max_delay")
-  task           Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  configVersion  Int           @map("config_version")
+  minDelay       Int           @map("min_delay")
+  maxDelay       Int           @map("max_delay")
+  task           Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
   account        WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@unique([taskId, accountId])
@@ -164,33 +319,34 @@ model TaskAccountSetting {
 }
 
 model TaskMessage {
-  id             String        @id @default(uuid()) @db.Uuid
-  messageId      String        @unique @map("message_id")
-  taskId         String        @map("task_id") @db.Uuid
-  accountId      String        @map("account_id") @db.Uuid
-  friendId       String        @map("friend_id") @db.Uuid
-  friendRemark   String        @map("friend_remark")
-  content        String
-  recipientEmail String        @map("recipient_email")
-  subject        String
-  minDelay       Int           @map("min_delay")
-  maxDelay       Int           @map("max_delay")
-  configVersion  Int           @map("config_version")
-  status         MessageStatus @default(PENDING)
-  readyAt        DateTime      @map("ready_at")
-  dispatchReservedAt DateTime? @map("dispatch_reserved_at")
-  acceptedAt     DateTime?     @map("accepted_at")
-  feedbackStatus FeedbackStatus? @map("feedback_status")
-  feedbackReceivedAt DateTime? @map("feedback_received_at")
-  feedbackError  String?       @map("feedback_error")
-  errorCode      String?       @map("error_code")
-  errorMessage   String?       @map("error_message")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
-  task           Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  account        WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  friend         Friend        @relation(fields: [friendId], references: [id], onDelete: Restrict)
-  attempts       DeliveryAttempt[]
+  id                 String            @id @default(uuid()) @db.Uuid
+  messageId          String            @unique @map("message_id")
+  taskId             String            @map("task_id") @db.Uuid
+  accountId          String            @map("account_id") @db.Uuid
+  friendId           String            @map("friend_id") @db.Uuid
+  friendRemark       String            @map("friend_remark")
+  content            String
+  recipientOrder     Int               @default(0) @map("recipient_order")
+  recipientEmail     String            @map("recipient_email")
+  subject            String
+  minDelay           Int               @map("min_delay")
+  maxDelay           Int               @map("max_delay")
+  configVersion      Int               @map("config_version")
+  status             MessageStatus     @default(PENDING)
+  readyAt            DateTime          @map("ready_at")
+  dispatchReservedAt DateTime?         @map("dispatch_reserved_at")
+  acceptedAt         DateTime?         @map("accepted_at")
+  feedbackStatus     FeedbackStatus?   @map("feedback_status")
+  feedbackReceivedAt DateTime?         @map("feedback_received_at")
+  feedbackError      String?           @map("feedback_error")
+  errorCode          String?           @map("error_code")
+  errorMessage       String?           @map("error_message")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  task               Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  account            WechatAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  friend             Friend            @relation(fields: [friendId], references: [id], onDelete: Restrict)
+  attempts           DeliveryAttempt[]
 
   @@unique([taskId, accountId, friendId])
   @@index([accountId, status, readyAt])
@@ -199,39 +355,39 @@ model TaskMessage {
 }
 
 model DeliveryAttempt {
-  id               String        @id @default(uuid()) @db.Uuid
-  messageId        String        @map("message_id") @db.Uuid
-  sequence         Int
-  status           AttemptStatus @default(STARTED)
+  id                String        @id @default(uuid()) @db.Uuid
+  messageId         String        @map("message_id") @db.Uuid
+  sequence          Int
+  status            AttemptStatus @default(STARTED)
   providerMessageId String?       @map("provider_message_id")
-  errorCode        String?       @map("error_code")
-  errorMessage     String?       @map("error_message")
-  startedAt        DateTime      @default(now()) @map("started_at")
-  completedAt      DateTime?     @map("completed_at")
-  message          TaskMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  errorCode         String?       @map("error_code")
+  errorMessage      String?       @map("error_message")
+  startedAt         DateTime      @default(now()) @map("started_at")
+  completedAt       DateTime?     @map("completed_at")
+  message           TaskMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, sequence])
   @@map("delivery_attempts")
 }
 
 model AccountDispatchState {
-  accountId     String   @id @map("account_id") @db.Uuid
-  nextAllowedAt DateTime @default(now()) @map("next_allowed_at")
-  lockedMessageId String? @map("locked_message_id") @db.Uuid
-  lockedUntil   DateTime? @map("locked_until")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  account       WechatAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId       String        @id @map("account_id") @db.Uuid
+  nextAllowedAt   DateTime      @default(now()) @map("next_allowed_at")
+  lockedMessageId String?       @map("locked_message_id") @db.Uuid
+  lockedUntil     DateTime?     @map("locked_until")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  account         WechatAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("account_dispatch_states")
 }
 
 model OutboxEvent {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
   type        String
-  aggregateId String   @map("aggregate_id") @db.Uuid
+  aggregateId String    @map("aggregate_id") @db.Uuid
   payload     Json
   processedAt DateTime? @map("processed_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([processedAt, createdAt])
   @@map("outbox_events")

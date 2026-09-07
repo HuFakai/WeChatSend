@@ -8,9 +8,11 @@ import { LoginPage } from '@/pages/login';
 import { TaskDetailPage } from '@/pages/task-detail';
 import { TaskNewPage } from '@/pages/task-new';
 import { TasksPage } from '@/pages/tasks';
+import { TemplatesPage } from '@/pages/templates';
+import { VariablesPage } from '@/pages/variables';
 
 function Protected() { return getToken() ? <AppShell /> : <Navigate to="/login" replace />; }
 
 export function App() {
-  return <Routes><Route path="/login" element={<LoginPage />} /><Route element={<Protected />}><Route index element={<DashboardPage />} /><Route path="accounts" element={<AccountsPage />} /><Route path="friends" element={<FriendsPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="tasks/new" element={<TaskNewPage />} /><Route path="tasks/:id" element={<TaskDetailPage />} /></Route><Route path="*" element={<Navigate to="/" replace />} /></Routes>;
+  return <Routes><Route path="/login" element={<LoginPage />} /><Route element={<Protected />}><Route index element={<DashboardPage />} /><Route path="accounts" element={<AccountsPage />} /><Route path="friends" element={<FriendsPage />} /><Route path="templates" element={<TemplatesPage />} /><Route path="variables" element={<VariablesPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="tasks/new" element={<TaskNewPage />} /><Route path="tasks/:id" element={<TaskDetailPage />} /></Route><Route path="*" element={<Navigate to="/" replace />} /></Routes>;
 }

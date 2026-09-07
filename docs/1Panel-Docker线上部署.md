@@ -210,3 +210,15 @@ PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d --remove-orphans
 
 数据库迁移默认只向前执行。涉及数据库结构的版本，回滚代码前应先核对迁移兼容性并备份数据库。
+
+## 9. P2 升级说明
+
+P2 新增好友分组/标签、模板、变量、草稿及任务内容快照表。更新代码后必须先备份 PostgreSQL，再执行迁移并重建三个应用服务：
+
+    git pull --ff-only
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env build
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env --profile tools run --rm migrate
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d --remove-orphans
+    docker compose -f web/deploy/docker-compose.prod.yml --env-file .env ps
+
+本次迁移不删除 P1 数据，会为已有任务补充可空的模板/变量快照字段，并写入首批平台精选模板。API、Worker、Web 仍是三个职责独立的应用容器；PostgreSQL 和 Redis 继续复用 1Panel 已有服务，不会额外创建数据库容器。
