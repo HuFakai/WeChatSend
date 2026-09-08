@@ -22,7 +22,7 @@ export class IdentityService {
 
   async rate(subject: string, limit: number, seconds: number) {
     const allowed = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${subject}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${subject})) IS NULL AS acquired`;
       const count = await tx.authChallenge.count({ where: { subject, kind: 'RATE', createdAt: { gt: new Date(Date.now() - seconds * 1000) } } });
       if (count >= limit) return false;
       await tx.authChallenge.create({ data: { id: randomUUID(), subject, kind: 'RATE', secretHash: '', expiresAt: new Date(Date.now() + seconds * 1000) } });

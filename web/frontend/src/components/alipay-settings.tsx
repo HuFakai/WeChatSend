@@ -1,12 +1,89 @@
-import { FormEvent,useEffect,useState } from 'react';
-import { api,patch } from '@/lib/api';
-import { Card,CardContent,CardHeader,CardTitle } from './ui/card';
+import { FormEvent, useEffect, useState } from 'react';
+import { api, patch } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { ErrorState } from './states';
-const initial={appId:'',sellerId:'',gateway:'https://openapi-sandbox.dl.alipaydev.com/gateway.do',keyType:'PKCS1',notifyUrl:'',expireMinutes:30,enabled:false,privateKey:'',publicKey:'',hasPrivateKey:false,hasPublicKey:false};
-export function AlipaySettings(){
-  const [form,setForm]=useState(initial),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
-  useEffect(()=>{void api<typeof initial>('/admin/alipay/config').then(c=>setForm({...initial,...c})).catch(e=>setError(e.message));},[]);
-  const save=async(e:FormEvent)=>{e.preventDefault();setBusy(true);setError('');setNotice('');try{const {hasPrivateKey,hasPublicKey,privateKey,publicKey,...values}=form;const c=await patch<typeof initial>('/admin/alipay/config',{...values,...(privateKey?{privateKey}:{}),...(publicKey?{publicKey}:{})});setForm({...initial,...c});setNotice('支付宝配置已保存。新订单使用新配置，已有订单保留原配置快照。');}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
-  return <Card><CardHeader><CardTitle>支付宝订单码支付配置</CardTitle></CardHeader><CardContent><form onSubmit={save} className="grid gap-4 md:grid-cols-2">{error&&<div className="md:col-span-2"><ErrorState message={error}/></div>}{notice&&<p role="status" className="text-sm text-emerald-700 md:col-span-2">{notice}</p>}{(['appId','sellerId','notifyUrl'] as const).map(k=><label key={k}><span className="field-label">{{appId:'支付宝应用 AppID',sellerId:'收款商户 PID（2088 开头）',notifyUrl:'异步通知 HTTPS 地址'}[k]}</span><input className="input" required value={form[k]} placeholder={k==='notifyUrl'?'https://你的域名/api/v1/alipay/notify':''} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}<label><span className="field-label">网关环境</span><select className="select" value={form.gateway} onChange={e=>setForm({...form,gateway:e.target.value})}><option value="https://openapi-sandbox.dl.alipaydev.com/gateway.do">沙箱（测试账号扫码）</option><option value="https://openapi.alipay.com/gateway.do">正式环境</option></select></label><label><span className="field-label">私钥格式</span><select className="select" value={form.keyType} onChange={e=>setForm({...form,keyType:e.target.value})}><option>PKCS1</option><option>PKCS8</option></select></label><label><span className="field-label">订单有效期（分钟）</span><input type="number" className="input" required min={5} max={120} value={form.expireMinutes} onChange={e=>setForm({...form,expireMinutes:Number(e.target.value)})}/></label>{(['privateKey','publicKey'] as const).map(k=><label key={k}><span className="field-label">{k==='privateKey'?'应用私钥':'支付宝公钥'}（{form[k==='privateKey'?'hasPrivateKey':'hasPublicKey']?'已配置，留空不修改':'未配置'}）</span><textarea className="textarea min-h-28 font-mono text-xs" autoComplete="off" value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}<label className="flex items-center gap-2 text-sm md:col-span-2"><input type="checkbox" checked={form.enabled} onChange={e=>setForm({...form,enabled:e.target.checked})}/>启用支付宝支付</label><div className="md:col-span-2"><Button disabled={busy}>保存支付宝配置</Button><p className="mt-3 text-xs leading-6 text-neutral-500">配置来源：后台优先，未保存过时兼容环境变量。私钥加密保存，不向浏览器回传。生产收款前请完成支付宝签约与一笔小额人工验收。</p></div></form></CardContent></Card>;
+
+const initial = {
+  appId: '',
+  notifyUrl: '',
+  expireMinutes: 30,
+  enabled: false,
+  privateKey: '',
+  publicKey: '',
+  hasPrivateKey: false,
+  hasPublicKey: false,
+};
+
+export function AlipaySettings() {
+  const [form, setForm] = useState(initial);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<typeof initial>('/admin/alipay/config')
+      .then((settings) => setForm({ ...initial, ...settings }))
+      .catch((reason) => setError(reason.message));
+  }, []);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const { hasPrivateKey, hasPublicKey, privateKey, publicKey, ...values } = form;
+      const settings = await patch<typeof initial>('/admin/alipay/config', {
+        ...values,
+        ...(privateKey ? { privateKey } : {}),
+        ...(publicKey ? { publicKey } : {}),
+      });
+      setForm({ ...initial, ...settings });
+      setNotice('支付宝配置已保存。新订单使用新配置，已有订单保留原配置快照。');
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>支付宝订单码支付配置</CardTitle></CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
+          {error && <div className="md:col-span-2"><ErrorState message={error} /></div>}
+          {notice && <p role="status" className="text-sm text-emerald-700 md:col-span-2">{notice}</p>}
+          <label>
+            <span className="field-label">支付宝应用 AppID</span>
+            <input className="input" required inputMode="numeric" value={form.appId} onChange={(event) => setForm({ ...form, appId: event.target.value })} />
+          </label>
+          <label>
+            <span className="field-label">订单有效期（分钟）</span>
+            <input type="number" className="input" required min={5} max={120} value={form.expireMinutes} onChange={(event) => setForm({ ...form, expireMinutes: Number(event.target.value) })} />
+          </label>
+          <label className="md:col-span-2">
+            <span className="field-label">异步通知 HTTPS 地址</span>
+            <input className="input" required type="url" value={form.notifyUrl} placeholder="https://你的域名/api/v1/alipay/notify" onChange={(event) => setForm({ ...form, notifyUrl: event.target.value })} />
+          </label>
+          {(['privateKey', 'publicKey'] as const).map((key) => (
+            <label key={key}>
+              <span className="field-label">
+                {key === 'privateKey' ? '应用私钥（Node.js 使用支付宝提供的 PKCS#1 原值）' : '支付宝公钥'}（{form[key === 'privateKey' ? 'hasPrivateKey' : 'hasPublicKey'] ? '已配置，留空不修改' : '未配置'}）
+              </span>
+              <textarea className="textarea min-h-28 font-mono text-xs" autoComplete="off" value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
+            </label>
+          ))}
+          <label className="flex items-center gap-2 text-sm md:col-span-2">
+            <input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />启用支付宝支付
+          </label>
+          <div className="md:col-span-2">
+            <Button disabled={busy}>保存支付宝配置</Button>
+            <p className="mt-3 text-xs leading-6 text-neutral-500">网关、RSA2 签名及私钥类型由服务端按 Node.js 订单码规范固定。私钥加密保存且不回传；生产收款前请完成签约和小额人工验收。</p>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
 }

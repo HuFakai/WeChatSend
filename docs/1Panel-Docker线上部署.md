@@ -66,16 +66,13 @@ P3/P4/P5 还需要在服务端 `.env` 设置：
 
 支付宝可在管理员页面“支付与套餐”中加密保存；以下环境变量仅作为首次部署兼容配置：
 
-    ALIPAY_GATEWAY="https://openapi-sandbox.dl.alipaydev.com/gateway.do"
-    ALIPAY_APP_ID="支付宝沙箱或正式 AppID"
-    ALIPAY_PRIVATE_KEY="应用私钥（建议使用 PKCS1）"
-    ALIPAY_KEY_TYPE=PKCS1
+    ALIPAY_APP_ID="支付宝正式 AppID"
+    ALIPAY_PRIVATE_KEY="Node.js 使用的 PKCS#1 应用私钥原值"
     ALIPAY_PUBLIC_KEY="支付宝公钥"
-    ALIPAY_SELLER_ID="2088 开头的 16 位收款商家 PID"
     ALIPAY_NOTIFY_URL="https://你的域名/api/v1/alipay/notify"
     ALIPAY_ORDER_EXPIRE_MINUTES=30
 
-沙箱联调请使用支付宝沙箱应用和测试账号；私钥、公钥和测试账号不能提交到 Git。正式环境把网关改为 `https://openapi.alipay.com/gateway.do`，并换成正式应用密钥。小程序虚拟支付的 AppID、OfferID、AppKey 和推送 Token 在 Web 管理员页面“支付与套餐”配置，AppKey 不写入 `.env`。支付 AppID 必须与微信登录使用的 `WECHAT_MINI_APPID` 一致。
+支付宝生产网关、RSA2 和 PKCS#1 由服务端固定，无需在后台选择。私钥、公钥和测试账号不能提交到 Git。小程序虚拟支付的 AppID、OfferID、AppKey 和推送 Token 在 Web 管理员页面“支付与套餐”配置，AppKey 不写入 `.env`。支付 AppID 必须与微信登录使用的 `WECHAT_MINI_APPID` 一致。
 
 开发/体验版联调网页登录时，可以临时设置 `WECHAT_MINI_ENV_VERSION=develop`（或 `trial`）和 `AUTH_SHOW_DEV_TICKET=true`。正式发布必须改回 `release` 和 `false`；release 环境即使误开 ticket 开关也不会返回 ticket。
 

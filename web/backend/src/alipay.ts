@@ -11,6 +11,7 @@ import { AlipayConfigService, AlipaySettings } from './alipay-config';
 import { encryptSecret } from './secrets';
 
 const orderSchema = z.object({ planId: z.string().uuid() });
+export const ALIPAY_ORDER_PRODUCT_CODE = 'QR_CODE_OFFLINE';
 type Payload = Record<string, any>;
 export function yuanToFen(value: unknown) {
   const match = /^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(String(value ?? ''));
@@ -39,7 +40,7 @@ export class AlipayService {
     const plan=await this.prisma.membershipPlan.findFirst({where:{id:body.planId,isActive:true}});
     if(!plan) throw new NotFoundException('套餐不存在或已下架');
     const reserved=await this.prisma.$transaction(async(tx)=>{
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'alipay:'+request.user.id+':'+plan.id}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'alipay:'+request.user.id+':'+plan.id})) IS NULL AS acquired`;
       const existing=await tx.alipayOrder.findFirst({where:{userId:request.user.id,planId:plan.id,status:'PENDING',expiresAt:{gt:new Date()}},orderBy:{createdAt:'desc'}});
       if(existing) return {order:existing,created:false};
       const order=await tx.alipayOrder.create({data:{userId:request.user.id,planId:plan.id,outTradeNo:'WA'+Date.now().toString(36)+randomBytes(8).toString('hex'),subject:('WeChatSend-'+plan.name).slice(0,256),amountFen:plan.priceFen,membershipDays:plan.membershipDays,messageQuota:plan.messageQuota,encryptedConfig:encryptSecret(JSON.stringify(cfg)),expiresAt:new Date(Date.now()+cfg.expireMinutes*60000)}});
@@ -48,7 +49,7 @@ export class AlipayService {
     const {order}=reserved;
     if(!reserved.created) return this.publicOrder(order);
     try {
-      const result=await sdk.exec('alipay.trade.precreate',{notifyUrl:cfg.notifyUrl,bizContent:{outTradeNo:order.outTradeNo,totalAmount:(order.amountFen/100).toFixed(2),subject:order.subject,productCode:'FACE_TO_FACE_PAYMENT',...(cfg.sellerId?{sellerId:cfg.sellerId}:{}),timeoutExpress:cfg.expireMinutes+'m'}},{validateSign:true});
+      const result=await sdk.exec('alipay.trade.precreate',{notifyUrl:cfg.notifyUrl,bizContent:{outTradeNo:order.outTradeNo,totalAmount:(order.amountFen/100).toFixed(2),subject:order.subject,productCode:ALIPAY_ORDER_PRODUCT_CODE,...(cfg.sellerId?{sellerId:cfg.sellerId}:{}),timeoutExpress:cfg.expireMinutes+'m'}},{validateSign:true});
       if(String(result.code)!=='10000'||!result.qrCode) {
         const definitive=String(result.code)==='40004';
         await this.prisma.alipayOrder.updateMany({where:{id:order.id,status:'PENDING'},data:{...(definitive?{status:'FAILED' as const}:{}),failureReason:definitive?'支付宝拒绝下单，请联系管理员检查签约与配置':'下单结果待核实，请从订单记录查询，不要重复付款'}});

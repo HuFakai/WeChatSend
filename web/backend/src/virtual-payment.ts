@@ -128,7 +128,7 @@ export class VirtualPaymentService {
     const outTradeNo = `W${Date.now().toString(36)}${randomBytes(6).toString('hex')}`.slice(0, 32);
     const expiresAt = new Date(Date.now() + 30 * 60_000);
     const reserved = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`virtual:${request.user.id}:${plan.id}`}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`virtual:${request.user.id}:${plan.id}`})) IS NULL AS acquired`;
       const existing=await tx.virtualPaymentOrder.findFirst({where:{userId:request.user.id,planId:plan.id,quantity:body.quantity,status:'PENDING',expiresAt:{gt:new Date()}},orderBy:{createdAt:'desc'}});
       if(existing)return {order:existing,reused:true};
       const order = await tx.virtualPaymentOrder.create({ data: {

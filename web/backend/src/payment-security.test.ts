@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import {describe,it,expect,vi} from 'vitest';
 import {createCipheriv,createHash,randomBytes} from 'node:crypto';
-import {AlipayService,assertAlipayPayment,yuanToFen} from './alipay';
-import {AlipayConfigService,AlipaySettings,alipayConfigSchema} from './alipay-config';
+import {AlipayService,ALIPAY_ORDER_PRODUCT_CODE,assertAlipayPayment,yuanToFen} from './alipay';
+import {ALIPAY_GATEWAY,ALIPAY_KEY_TYPE,AlipayConfigService,AlipaySettings,alipayConfigSchema} from './alipay-config';
 import {decryptWechatPush,parseWechatPush} from './wechat-push';
 import {OrdersService} from './orders';
 import {VirtualPaymentService} from './virtual-payment';
@@ -20,7 +20,7 @@ function harness(){
 describe('payment validation and transitions',()=>{
  it('converts cents exactly and rejects malformed amounts',()=>{expect(yuanToFen('9.9')).toBe(990);for(const v of ['1e2','9.999','-1','','Infinity','01.00'])expect(yuanToFen(v)).toBeUndefined();});
  it('requires correct order, amount, application, seller and transaction',()=>{expect(()=>assertAlipayPayment(base,valid,cfg,true)).not.toThrow();for(const [key,value] of Object.entries({out_trade_no:'other',total_amount:'0.01',app_id:'other',seller_id:'other',trade_no:''}))expect(()=>assertAlipayPayment(base,{...valid,[key]:value},cfg,true)).toThrow();});
- it('restricts configured gateways and notify scheme',()=>{expect(alipayConfigSchema.safeParse({...cfg,gateway:'https://attacker.example/gateway'}).success).toBe(false);expect(alipayConfigSchema.safeParse({...cfg,notifyUrl:'http://example.com'}).success).toBe(false);});
+ it('keeps gateway, RSA2 key type and order product code server-controlled',()=>{const parsed=alipayConfigSchema.parse({...cfg,privateKey:'p'.repeat(100),publicKey:'k'.repeat(100),gateway:'https://attacker.example/gateway',keyType:'PKCS8',sellerId:'other'});expect(parsed).not.toHaveProperty('gateway');expect(parsed).not.toHaveProperty('keyType');expect(ALIPAY_GATEWAY).toBe('https://openapi.alipay.com/gateway.do');expect(ALIPAY_KEY_TYPE).toBe('PKCS1');expect(ALIPAY_ORDER_PRODUCT_CODE).toBe('QR_CODE_OFFLINE');expect(alipayConfigSchema.safeParse({...cfg,notifyUrl:'http://example.com'}).success).toBe(false);});
  it('keeps keys out of admin responses',async()=>{const c=new AlipayConfigService({} as any);vi.spyOn(c,'settings').mockResolvedValue(cfg);const view=await c.view();expect(view.hasPrivateKey).toBe(true);expect(JSON.stringify(view)).not.toContain('"private"');expect(view).not.toHaveProperty('privateKey');});
  it('queries overdue orders before closing; paid order is never cancelled',async()=>{const h=harness();h.exec.mockResolvedValue({code:'10000',tradeStatus:'TRADE_SUCCESS',outTradeNo:'WAorder',totalAmount:'9.90',tradeNo:'ali123'});await h.service.reconcile(h.row);expect(h.exec.mock.calls.map(c=>c[0])).toEqual(['alipay.trade.query']);expect(h.row.status).toBe('PAID');expect(h.grants.size).toBe(1);});
  it('closes only a confirmed unpaid order and never calls trade.cancel',async()=>{const h=harness();h.exec.mockResolvedValueOnce({code:'10000',tradeStatus:'WAIT_BUYER_PAY'}).mockResolvedValueOnce({code:'10000'});await h.service.reconcile(h.row);expect(h.exec.mock.calls.map(c=>c[0])).toEqual(['alipay.trade.query','alipay.trade.close']);expect(h.row.status).toBe('CLOSED');});
