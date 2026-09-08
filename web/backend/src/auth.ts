@@ -88,7 +88,7 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Get('me')
   me(@Req() request: AuthRequest) {
-    const { id, username, timezone, role, nickname, avatarUrl, miniOpenid } = request.user;
-    return { id, username, timezone, role, nickname, avatarUrl, hasMiniOpenid: Boolean(miniOpenid) };
+    const { id, username, timezone, role, nickname, avatarUrl, miniOpenid, email, emailVerifiedAt } = request.user;
+    return { id, username, timezone, role, nickname, avatarUrl, email, emailVerifiedAt, hasMiniOpenid: Boolean(miniOpenid) };
   }
 }

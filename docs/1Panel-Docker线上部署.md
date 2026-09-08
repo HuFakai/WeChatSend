@@ -61,19 +61,23 @@ P3/P4/P5 还需要在服务端 `.env` 设置：
     APP_ENCRYPTION_KEY="至少32位随机字符串"
     WECHAT_MINI_APPID="小程序 AppID"
     WECHAT_MINI_SECRET="小程序 Secret"
+    WECHAT_MINI_ENV_VERSION=release
+    AUTH_SHOW_DEV_TICKET=false
 
-如果要启用本次支付功能，还需要配置支付宝订单码支付：
+支付宝可在管理员页面“支付与套餐”中加密保存；以下环境变量仅作为首次部署兼容配置：
 
     ALIPAY_GATEWAY="https://openapi-sandbox.dl.alipaydev.com/gateway.do"
     ALIPAY_APP_ID="支付宝沙箱或正式 AppID"
     ALIPAY_PRIVATE_KEY="应用私钥（建议使用 PKCS1）"
     ALIPAY_KEY_TYPE=PKCS1
     ALIPAY_PUBLIC_KEY="支付宝公钥"
-    ALIPAY_SELLER_ID="可选的商家账号 ID"
+    ALIPAY_SELLER_ID="2088 开头的 16 位收款商家 PID"
     ALIPAY_NOTIFY_URL="https://你的域名/api/v1/alipay/notify"
     ALIPAY_ORDER_EXPIRE_MINUTES=30
 
-沙箱联调请使用支付宝 CLI 创建的沙箱应用和测试账号；私钥、公钥和测试账号不能提交到 Git。正式环境把网关改为 `https://openapi.alipay.com/gateway.do`，并换成正式应用密钥。小程序虚拟支付的 AppID、OfferID、AppKey 和推送 Token 在 Web 管理员页面“支付与套餐”配置，AppKey 不写入 `.env`。
+沙箱联调请使用支付宝沙箱应用和测试账号；私钥、公钥和测试账号不能提交到 Git。正式环境把网关改为 `https://openapi.alipay.com/gateway.do`，并换成正式应用密钥。小程序虚拟支付的 AppID、OfferID、AppKey 和推送 Token 在 Web 管理员页面“支付与套餐”配置，AppKey 不写入 `.env`。支付 AppID 必须与微信登录使用的 `WECHAT_MINI_APPID` 一致。
+
+开发/体验版联调网页登录时，可以临时设置 `WECHAT_MINI_ENV_VERSION=develop`（或 `trial`）和 `AUTH_SHOW_DEV_TICKET=true`。正式发布必须改回 `release` 和 `false`；release 环境即使误开 ticket 开关也不会返回 ticket。
 
 `APP_ENCRYPTION_KEY` 用于加密 AI/API 密钥，丢失后无法解密已保存的通道密钥；不要在前端、小程序或 Git 中使用它。微信支付 V3 只有在开通支付并准备好商户证书后再填写 `WECHAT_PAY_MCH_ID`、`WECHAT_PAY_SERIAL_NO`、`WECHAT_PAY_PRIVATE_KEY`、`WECHAT_PAY_API_V3_KEY`、`WECHAT_PAY_PLATFORM_CERT` 和 `WECHAT_PAY_NOTIFY_URL`。支付回调地址必须是公网 HTTPS。
 
@@ -178,7 +182,7 @@ PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
 
 环境变量示例在项目更新后可能增加字段，但 git pull 不会覆盖现有 .env。检查本次新增的字段：
 
-    grep -E '^(ONEPANEL_NETWORK|REDIS_URL|WEB_PORT)=' .env
+    grep -E '^(ONEPANEL_NETWORK|REDIS_URL|WEB_PORT|WECHAT_MINI_ENV_VERSION|AUTH_SHOW_DEV_TICKET)=' .env
 
 缺少字段的已部署项目，应填写 1Panel 的共享网络、Redis 真实容器名、逻辑库及密码：
 

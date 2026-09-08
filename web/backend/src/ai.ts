@@ -7,7 +7,7 @@ import { decryptSecret } from './secrets';
 import { PrismaService } from './prisma.service';
 import { ZodPipe } from './zod.pipe';
 
-export const AI_FEATURES = ['mini_ai_copy', 'mini_ai_template', 'mini_ai_task'] as const;
+export const AI_FEATURES = ['mini_ai_copy', 'mini_ai_template', 'mini_ai_task', 'membership_required'] as const;
 export type AiMode = 'COPY' | 'TEMPLATE' | 'TASK';
 
 const modeFeature: Record<AiMode, typeof AI_FEATURES[number]> = {

@@ -1,55 +1,9 @@
-import { publicPost } from './services/api';
-
-let launchScene = '';
-
-function sceneFrom(options: WechatMiniprogram.App.LaunchShowOption) {
-  const raw = options.query?.scene;
-  return raw ? decodeURIComponent(raw) : '';
-}
-
-function rememberScene(scene: string) {
-  if (!scene) return;
-  wx.setStorageSync('wechatsend_pending_scene', scene);
-}
-
-App({
-  onLaunch(options: WechatMiniprogram.App.LaunchShowOption) {
-    const scene = sceneFrom(options);
-    launchScene = scene;
-    rememberScene(scene);
-    const token = wx.getStorageSync('wechatsend_token');
-    if (token) {
-      if (scene) wx.redirectTo({ url: `/pages/pay/index?scene=${encodeURIComponent(scene)}` });
-      else wx.switchTab({ url: '/pages/index/index' });
-      return;
-    }
-    wx.login({
-      success: async ({ code }) => {
-        try {
-          const result = await publicPost<{ token: string; user?: { needsProfile?: boolean } }>('/auth/miniprogram/silent', { code });
-          if (result.user?.needsProfile) {
-            wx.reLaunch({ url: '/pages/login/index' });
-            return;
-          }
-          wx.setStorageSync('wechatsend_token', result.token);
-          const pending = wx.getStorageSync('wechatsend_pending_scene');
-          if (pending) wx.redirectTo({ url: `/pages/pay/index?scene=${encodeURIComponent(pending)}` });
-          else wx.switchTab({ url: '/pages/index/index' });
-        } catch { wx.reLaunch({ url: '/pages/login/index' }); }
-      },
-      fail: () => wx.reLaunch({ url: '/pages/login/index' }),
-    });
-  },
-  onShow(options: WechatMiniprogram.App.LaunchShowOption) {
-    const scene = sceneFrom(options);
-    if (!scene) return;
-    if (scene === launchScene) {
-      launchScene = '';
-      return;
-    }
-    rememberScene(scene);
-    const token = wx.getStorageSync('wechatsend_token');
-    if (token) wx.redirectTo({ url: `/pages/pay/index?scene=${encodeURIComponent(scene)}` });
-    else wx.reLaunch({ url: '/pages/login/index' });
-  },
-});
+import {publicPost} from './services/api';
+import {continueAfterLogin} from './services/identity';
+let launchScene='';
+function sceneFrom(o:WechatMiniprogram.App.LaunchShowOption){try{return decodeURIComponent(o.query?.scene||'');}catch{return '';}}
+App({onLaunch(o:WechatMiniprogram.App.LaunchShowOption){const scene=sceneFrom(o);launchScene=scene;if(scene)wx.setStorageSync('wechatsend_pending_scene',scene);
+  if(o.path==='pages/scan/index')return;
+  if(wx.getStorageSync('wechatsend_token')){if(scene||!o.path||o.path==='pages/login/index')continueAfterLogin();return;}
+  wx.login({success:async({code})=>{try{const r=await publicPost<{token?:string}>('/auth/miniprogram/silent',{code});if(!r.token){wx.reLaunch({url:'/pages/login/index'});return;}wx.setStorageSync('wechatsend_token',r.token);continueAfterLogin();}catch{wx.reLaunch({url:'/pages/login/index'});}},fail:()=>wx.reLaunch({url:'/pages/login/index'})});
+},onShow(o:WechatMiniprogram.App.LaunchShowOption){const scene=sceneFrom(o);if(!scene)return;if(scene===launchScene){launchScene='';return;}wx.setStorageSync('wechatsend_pending_scene',scene);if(o.path==='pages/scan/index')return;if(wx.getStorageSync('wechatsend_token'))continueAfterLogin();else wx.reLaunch({url:'/pages/login/index'});}});

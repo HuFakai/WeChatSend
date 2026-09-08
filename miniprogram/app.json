@@ -11,7 +11,10 @@
     "pages/task-detail/index",
     "pages/mine/index",
     "pages/ai/index",
-    "pages/pay/index"
+    "pages/pay/index",
+    "pages/scan/index",
+    "pages/bind-email/index",
+    "pages/orders/index"
   ],
   "window": {
     "navigationBarTitleText": "WeChatSend",

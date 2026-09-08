@@ -10,7 +10,7 @@
     <view wx:elif="{{order}}" class="card">
       <view class="label">订单描述</view>
       <view class="order-title">{{order.description}}</view>
-      <!-- <view class="amount">¥{{(order.amountFen / 100).toFixed(2)}}</view> -->
+      <view class="amount">¥{{order.price}}</view>
       <view class="small muted">订单有效期至 {{order.expiresAt}}</view><button class="button submit" loading="{{loading}}" bindtap="pay">微信支付</button>
     </view>
     <view wx:else class="empty">正在读取订单…</view>
@@ -19,8 +19,9 @@
     <view class="eyebrow">VIRTUAL PAYMENT</view>
     <view class="title">选择会员套餐</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
-    <view wx:elif="{{virtualPaid}}" class="card success"><view class="amount">购买成功</view><view class="subtitle">会员权益已发放。</view></view>
-    <view wx:elif="{{virtualOrder}}" class="card"><view class="label">订单状态</view><view class="order-title">{{virtualOrder.plan.name}}</view><view class="small muted">订单号：{{virtualOrder.outTradeNo}}</view><view class="small muted">支付后等待微信发货推送，页面会自动查询。</view></view>
+    <view wx:if="{{virtualPaid}}" class="card success"><view class="amount">购买成功</view><view class="subtitle">会员权益已发放。</view></view>
+    <view wx:elif="{{virtualOrder}}" class="card"><view class="label">订单状态：{{virtualOrder.status}}</view><view class="order-title">{{virtualOrder.plan.name}}</view><view class="small muted">订单号：{{virtualOrder.outTradeNo}}</view><view class="small muted">结果以服务端确认为准，可从订单记录恢复。</view><button class="button secondary" disabled="{{loading}}" bindtap="refresh">查询支付结果</button><button wx:if="{{virtualOrder.status==='PENDING'}}" class="button" loading="{{loading}}" disabled="{{loading}}" bindtap="resume">继续支付</button></view>
     <view wx:else class="card plan-list"><view wx:for="{{plans}}" wx:key="id" class="plan"><view><view class="order-title">{{item.name}}</view><view class="small muted">{{item.description}}</view><view class="small muted">{{item.membershipDays}} 天 · {{item.messageQuota || '不限'}} 条额度</view></view><view class="plan-action"><view class="plan-price">¥{{item.priceFen / 100}}</view><button class="button submit" data-plan-id="{{item.id}}" loading="{{loading}}" bindtap="buyVirtual">购买</button></view></view><view wx:if="{{!plans.length}}" class="empty">暂无可购买套餐</view></view>
+    <button class="button secondary" bindtap="orders">查看全部订单记录</button>
   </view>
 </view>

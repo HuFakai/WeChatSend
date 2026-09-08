@@ -1,11 +1,13 @@
 import { BookOpenText, BookUser, Braces, Bot, ChevronRight, CreditCard, LayoutDashboard, LogOut, Menu, MessageSquareText, Radio, Send, Settings2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { api, setToken } from '@/lib/api';
+import { api, post, setToken } from '@/lib/api';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
 const nav = [
+  { to: '/profile', label:'个人中心', icon: BookUser },
+  { to: '/orders', label:'订单记录', icon: CreditCard },
   { to: '/', label: '工作台', icon: LayoutDashboard },
   { to: '/accounts', label: '发送账号', icon: Radio },
   { to: '/friends', label: '好友管理', icon: BookUser },
@@ -21,7 +23,7 @@ export function AppShell() {
   const [isAdmin, setIsAdmin] = useState(false);
   const navigate = useNavigate();
   useEffect(() => { void api<{ role?: string }>('/auth/me').then((user) => setIsAdmin(user.role === 'ADMIN')).catch(() => undefined); }, []);
-  const logout = () => { setToken(null); navigate('/login', { replace: true }); };
+  const logout = async () => { await post('/auth/logout').catch(()=>undefined); setToken(null); navigate('/login', { replace: true }); };
 
   const sidebar = (
     <>

@@ -2,10 +2,10 @@
   <view class="brand">WS</view>
   <view class="eyebrow">WECHAT IDENTITY</view>
   <view class="title">进入 WeChatSend</view>
-  <view class="subtitle">使用微信身份登录，昵称和头像只用于显示与账号绑定。</view>
+  <view class="subtitle">使用微信身份登录，可在个人中心绑定邮箱，在网页和小程序间共享数据。</view>
   <view class="card form">
     <view wx:if="{{error}}" class="error">{{error}}</view>
-    <button class="button submit" loading="{{loading}}" bindtap="login">微信授权并登录</button>
-    <view class="note">首次进入会创建平台账号；不会把 session_key 返回给小程序。</view>
+    <button class="button submit" loading="{{loading}}" bindtap="login">微信登录</button>
+    <view class="note">首次登录会创建平台账号，不要求授权昵称和头像。</view>
   </view>
 </view>

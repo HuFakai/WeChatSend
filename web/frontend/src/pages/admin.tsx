@@ -14,6 +14,7 @@ const flagLabels: Record<string, string> = {
   mini_ai_copy: '小程序 AI 生成文案',
   mini_ai_template: '小程序 AI 生成模板',
   mini_ai_task: '小程序 AI 生成任务草稿',
+  membership_required: '发送任务需要有效会员权益',
 };
 
 const emptyIntegration = () => ({

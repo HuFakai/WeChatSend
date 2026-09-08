@@ -23,6 +23,7 @@ const schema = z.object({
   WECHAT_MINI_APPID: z.string().min(1).optional(),
   WECHAT_MINI_SECRET: z.string().min(1).optional(),
   WECHAT_MINI_ENV_VERSION: z.enum(['develop', 'trial', 'release']).default('release'),
+  AUTH_SHOW_DEV_TICKET: z.string().default('false').transform((value) => value === 'true'),
   WECHAT_PAY_MCH_ID: z.string().min(1).optional(),
   WECHAT_PAY_SERIAL_NO: z.string().min(1).optional(),
   WECHAT_PAY_PRIVATE_KEY: z.string().min(1).optional(),

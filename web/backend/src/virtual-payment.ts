@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Injectable,
   NotFoundException,
   Param,
@@ -14,8 +15,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { MembershipGrantSource, Prisma, VirtualPaymentOrderStatus } from '@prisma/client';
-import { XMLParser } from 'fast-xml-parser';
-import { createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { assertAdmin, AuthGuard, AuthRequest } from './auth';
@@ -23,6 +23,8 @@ import { config } from './config';
 import { PrismaService } from './prisma.service';
 import { decryptSecret, encryptSecret } from './secrets';
 import { ZodPipe } from './zod.pipe';
+import { WechatAccessService } from './wechat-access';
+import { parseWechatPush, decryptWechatPush } from './wechat-push';
 
 const orderSchema = z.object({ planId: z.string().uuid(), quantity: z.number().int().min(1).max(100) });
 const configSchema = z.object({
@@ -104,9 +106,8 @@ function xmlResponse(ok: boolean) {
 
 @Injectable()
 export class VirtualPaymentService {
-  private readonly parser = new XMLParser({ ignoreAttributes: true, trimValues: true, parseTagValue: false });
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly wechat: WechatAccessService) {}
 
   async plans() {
     return this.prisma.membershipPlan.findMany({
@@ -126,26 +127,45 @@ export class VirtualPaymentService {
     const orderId = randomUUID();
     const outTradeNo = `W${Date.now().toString(36)}${randomBytes(6).toString('hex')}`.slice(0, 32);
     const expiresAt = new Date(Date.now() + 30 * 60_000);
-    const order = await this.prisma.virtualPaymentOrder.create({ data: {
+    const reserved = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`virtual:${request.user.id}:${plan.id}`}))`;
+      const existing=await tx.virtualPaymentOrder.findFirst({where:{userId:request.user.id,planId:plan.id,quantity:body.quantity,status:'PENDING',expiresAt:{gt:new Date()}},orderBy:{createdAt:'desc'}});
+      if(existing)return {order:existing,reused:true};
+      const order = await tx.virtualPaymentOrder.create({ data: {
       id: orderId,
       userId: request.user.id,
       planId: plan.id,
       outTradeNo,
-      openid: request.user.miniOpenid,
+      openid: request.user.miniOpenid!,
       productId: plan.productId,
       quantity: body.quantity,
+      membershipDays: plan.membershipDays,
+      messageQuota: plan.messageQuota,
       amountFen: plan.priceFen * body.quantity,
       attach: orderId,
       expiresAt,
-    } });
+      } });
+      return {order,reused:false};
+    });
+    return this.checkout(request, reserved.order.id, reserved.reused);
+  }
 
+  async checkout(request: AuthRequest, id: string, check = true) {
+    if (check) await this.query(request, id, true);
+    const order=await this.prisma.virtualPaymentOrder.findFirst({where:{id,userId:request.user.id},include:{plan:true}});
+    if(!order)throw new NotFoundException('订单不存在');
+    if(order.status!=='PENDING'||order.expiresAt<=new Date())throw new BadRequestException('订单已支付或已过期，请查看订单记录');
+    const payment=await this.paymentConfig();
+    if(!payment.enabled)throw new BadRequestException('虚拟支付暂未启用');
+    if(!request.user.miniSessionKeyEncrypted||request.user.miniOpenid!==order.openid)throw new BadRequestException('请重新微信登录后支付');
+    const plan=order.plan;
     const signData = JSON.stringify({
       offerId: payment.offerId,
       buyQuantity: order.quantity,
       env: 0,
       currencyType: 'CNY',
       productId: order.productId,
-      goodsPrice: plan.priceFen,
+      goodsPrice: order.amountFen / order.quantity,
       outTradeNo: order.outTradeNo,
       attach: order.attach,
     });
@@ -153,6 +173,7 @@ export class VirtualPaymentService {
     const sessionKey = decryptSecret(request.user.miniSessionKeyEncrypted);
     return {
       id: order.id,
+      outTradeNo: order.outTradeNo,
       status: order.status,
       expiresAt: order.expiresAt,
       plan: { id: plan.id, name: plan.name, description: plan.description, priceFen: plan.priceFen, quantity: order.quantity, amountFen: order.amountFen },
@@ -182,12 +203,13 @@ export class VirtualPaymentService {
     });
   }
 
-  async query(request: AuthRequest, id: string) {
+  async query(request: AuthRequest, id: string, force = false) {
     const order = await this.prisma.virtualPaymentOrder.findFirst({ where: { id, userId: request.user.id }, include: { plan: true } });
     if (!order) throw new NotFoundException('虚拟支付订单不存在');
-    if (order.status === VirtualPaymentOrderStatus.DELIVERED) return this.publicOrder(order);
+    const claimed = await this.prisma.virtualPaymentOrder.updateMany({ where: { id, OR: [{queriedAt:null},{queriedAt:{lt:new Date(Date.now()-5000)}}] }, data: { queriedAt:new Date() } });
+    if (!claimed.count && !force) return this.publicOrder(order);
     const payment = await this.paymentConfig();
-    const accessToken = await this.accessToken();
+    const accessToken = await this.wechat.token();
     const body = JSON.stringify({ openid: order.openid, env: 0, order_id: order.outTradeNo });
     const paySig = signHmac(decryptSecret(payment.encryptedAppKey), `/xpay/query_order&${body}`);
     const url = new URL('https://api.weixin.qq.com/xpay/query_order');
@@ -200,9 +222,13 @@ export class VirtualPaymentService {
     if (status === 2 || status === 3 || status === 4) {
       await this.deliver(order.id, { openid: order.openid, outTradeNo: order.outTradeNo, wxOrderId: result.order?.wx_order_id, productId: order.productId, quantity: order.quantity, raw: result });
     } else if (status === 5) {
-      await this.prisma.virtualPaymentOrder.update({ where: { id: order.id }, data: { status: VirtualPaymentOrderStatus.REFUNDED, queriedAt: new Date(), notifyRaw: result as Prisma.InputJsonValue } });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM virtual_payment_orders WHERE id=${order.id}::uuid FOR UPDATE`;
+        await tx.virtualPaymentOrder.update({where:{id:order.id},data:{status:'REFUNDED',queriedAt:new Date(),notifyRaw:result as Prisma.InputJsonValue}});
+        await tx.membershipGrant.updateMany({where:{source:'WECHAT_VIRTUAL',sourceOrderId:order.id,expiresAt:{gt:new Date()}},data:{expiresAt:new Date()}});
+      });
     } else if (status === 6) {
-      await this.prisma.virtualPaymentOrder.update({ where: { id: order.id }, data: { status: VirtualPaymentOrderStatus.CLOSED, queriedAt: new Date(), notifyRaw: result as Prisma.InputJsonValue } });
+      await this.prisma.virtualPaymentOrder.updateMany({ where: { id: order.id, status:'PENDING' }, data: { status: VirtualPaymentOrderStatus.CLOSED, queriedAt: new Date(), notifyRaw: result as Prisma.InputJsonValue } });
     } else {
       await this.prisma.virtualPaymentOrder.update({ where: { id: order.id }, data: { queriedAt: new Date(), notifyRaw: result as Prisma.InputJsonValue } });
     }
@@ -220,20 +246,27 @@ export class VirtualPaymentService {
       ? sha1([token, timestamp, nonce, echostr].sort().join(''))
       : sha1([token, timestamp, nonce].sort().join(''));
     if (!sameText(query.signature || query.msg_signature, expected)) throw new BadRequestException('虚拟支付推送签名无效');
-    return echostr;
+    return query.msg_signature && payment.encryptedEncodingAesKey ? decryptWechatPush(echostr, decryptSecret(payment.encryptedEncodingAesKey), payment.appId) : echostr;
   }
 
   async notify(request: Request, response: Response) {
     const payment = await this.paymentConfig();
     const rawBody = (request as Request & { rawBody?: Buffer }).rawBody?.toString('utf8') ?? '';
     if (!rawBody) throw new BadRequestException('虚拟支付推送内容为空');
-    const notify = this.parseNotify(rawBody, payment);
-    if (notify.event && notify.event !== 'xpay_goods_deliver_notify') {
+    const inner = parseWechatPush(rawBody, request.query as Record<string,string>, { token: payment.pushToken, appId:payment.appId, mode:payment.messageMode, aesKey:payment.encryptedEncodingAesKey?decryptSecret(payment.encryptedEncodingAesKey):undefined });
+    const info=nested(inner,'WeChatPayInfo'), goods=nested(inner,'GoodsInfo');
+    const notify:VirtualNotify={event:pick(inner,'Event'),openid:pick(inner,'OpenId'),outTradeNo:pick(inner,'OutTradeNo'),wxOrderId:pick(info,'MchOrderNo')||pick(inner,'MchOrderNo'),productId:pick(goods,'ProductId'),quantity:Number(pick(goods,'Quantity'))||undefined,raw:inner};
+    if (notify.event === 'xpay_refund_notify' && notify.outTradeNo) {
+      const order=await this.prisma.virtualPaymentOrder.findUnique({where:{outTradeNo:notify.outTradeNo}});
+      if(order) await this.query({user:{id:order.userId}} as AuthRequest,order.id);
+    } else if (notify.event !== 'xpay_goods_deliver_notify') {
       response.type('application/xml');
       return xmlResponse(true);
     }
-    if (!notify.outTradeNo || !notify.openid) throw new BadRequestException('虚拟支付推送缺少订单信息');
-    await this.deliverByNotify(notify);
+    if (notify.event === 'xpay_goods_deliver_notify') {
+      if (!notify.outTradeNo || !notify.openid || !notify.productId || !notify.quantity) throw new BadRequestException('虚拟支付推送缺少订单信息');
+      await this.deliverByNotify(notify);
+    }
     if (payment.dataFormat === 'JSON') { response.type('application/json'); return { errcode: 0, errmsg: 'success' }; }
     response.type('application/xml');
     return xmlResponse(true);
@@ -250,6 +283,8 @@ export class VirtualPaymentService {
 
   async saveAdminConfig(body: z.infer<typeof configSchema>) {
     const current = await this.prisma.virtualPaymentConfig.findUnique({ where: { id: 'default' } });
+    if(body.appId !== config().WECHAT_MINI_APPID)throw new BadRequestException('支付 AppID 必须与服务端微信登录 AppID 一致');
+    if(current && (body.appId!==current.appId || body.offerId!==current.offerId))throw new BadRequestException('已有支付商户不能直接替换 AppID/OfferID，以免历史订单无法查单');
     if (!body.appKey && !current) throw new BadRequestException('首次保存必须填写 AppKey');
     if (!body.pushToken && !current) throw new BadRequestException('首次保存必须填写推送 Token');
     if (body.messageMode !== 'PLAINTEXT' && !body.encodingAesKey && !current?.encryptedEncodingAesKey) {
@@ -294,46 +329,6 @@ export class VirtualPaymentService {
     return { id: order.id, status: order.status, outTradeNo: order.outTradeNo, amountFen: order.amountFen, expiresAt: order.expiresAt, paidAt: order.paidAt, deliveredAt: order.deliveredAt, queriedAt: order.queriedAt, plan: order.plan };
   }
 
-  private parseNotify(rawBody: string, payment: { pushToken: string; encryptedEncodingAesKey: string | null; messageMode: string; dataFormat: string }): VirtualNotify {
-    if (payment.dataFormat === 'JSON') {
-      if (!rawBody.trimStart().startsWith('{')) throw new BadRequestException('虚拟支付 JSON 推送格式无效');
-      const value = JSON.parse(rawBody) as Record<string, unknown>;
-      const info = nested(value, 'WeChatPayInfo');
-      const goods = nested(value, 'GoodsInfo');
-      return { event: pick(value, 'Event'), openid: pick(value, 'OpenId'), outTradeNo: pick(value, 'OutTradeNo'), wxOrderId: pick(info, 'MchOrderNo') || pick(value, 'MchOrderNo'), productId: pick(goods, 'ProductId'), quantity: Number(pick(goods, 'Quantity') || 0) || undefined, raw: value };
-    }
-    if (rawBody.trimStart().startsWith('{')) throw new BadRequestException('当前配置只接受 XML 推送');
-    const parsed = unwrapXml(this.parser.parse(rawBody));
-    const timestamp = pick(parsed, 'TimeStamp') || pick(parsed, 'timestamp');
-    const nonce = pick(parsed, 'Nonce') || pick(parsed, 'nonce');
-    const msgSignature = pick(parsed, 'MsgSignature') || pick(parsed, 'msg_signature');
-    const signature = pick(parsed, 'Signature') || pick(parsed, 'signature');
-    const encrypted = pick(parsed, 'Encrypt');
-    let inner = parsed;
-    if (encrypted) {
-      if (!timestamp || !nonce || !msgSignature || !payment.encryptedEncodingAesKey) throw new BadRequestException('安全模式推送参数不完整');
-      if (!sameText(msgSignature, sha1([payment.pushToken, timestamp, nonce, encrypted].sort().join('')))) throw new BadRequestException('虚拟支付推送签名无效');
-      const decrypted = this.decryptMessage(encrypted, decryptSecret(payment.encryptedEncodingAesKey));
-      inner = unwrapXml(this.parser.parse(decrypted));
-    } else if (timestamp && nonce && signature && !sameText(signature, sha1([payment.pushToken, timestamp, nonce].sort().join('')))) {
-      throw new BadRequestException('虚拟支付推送签名无效');
-    } else if (timestamp && nonce && msgSignature && !sameText(msgSignature, sha1([payment.pushToken, timestamp, nonce].sort().join('')))) {
-      throw new BadRequestException('虚拟支付推送签名无效');
-    }
-    const info = nested(inner, 'WeChatPayInfo');
-    const goods = nested(inner, 'GoodsInfo');
-    return { event: pick(inner, 'Event'), openid: pick(inner, 'OpenId'), outTradeNo: pick(inner, 'OutTradeNo'), wxOrderId: pick(info, 'MchOrderNo') || pick(inner, 'MchOrderNo'), productId: pick(goods, 'ProductId'), quantity: Number(pick(goods, 'Quantity') || 0) || undefined, raw: inner };
-  }
-
-  private decryptMessage(encrypted: string, encodingAesKey: string) {
-    const key = Buffer.from(`${encodingAesKey}=`, 'base64');
-    const iv = key.subarray(0, 16);
-    const decipher = createDecipheriv('aes-256-cbc', key, iv);
-    const decrypted = Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64')), decipher.final()]);
-    const length = decrypted.readUInt32BE(16);
-    return decrypted.subarray(20, 20 + length).toString('utf8');
-  }
-
   private async deliverByNotify(notify: VirtualNotify) {
     const order = await this.prisma.virtualPaymentOrder.findUnique({ where: { outTradeNo: notify.outTradeNo! } });
     if (!order) throw new NotFoundException('虚拟支付订单不存在');
@@ -341,11 +336,15 @@ export class VirtualPaymentService {
     if (notify.openid && notify.openid !== order.openid) throw new BadRequestException('虚拟支付用户不匹配');
     if (notify.quantity !== undefined && notify.quantity !== order.quantity) throw new BadRequestException('虚拟支付商品数量不匹配');
     if (!notify.wxOrderId) throw new BadRequestException('虚拟支付推送缺少平台订单号');
-    await this.deliver(order.id, notify);
+    // Plaintext URL signatures do not bind the body: independently query WeChat before granting.
+    const verified=await this.query({user:{id:order.userId}} as AuthRequest,order.id,true);
+    if(verified.status!=='DELIVERED')throw new BadRequestException('微信尚未确认支付，请重试推送');
   }
 
   private async deliver(id: string, notify: VirtualNotify) {
+    if(!notify.wxOrderId)throw new BadRequestException('微信查单未返回平台订单号');
     await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM virtual_payment_orders WHERE id=${id}::uuid FOR UPDATE`;
       const order = await tx.virtualPaymentOrder.findUnique({ where: { id }, include: { plan: true } });
       if (!order) throw new NotFoundException('虚拟支付订单不存在');
       if (order.status === VirtualPaymentOrderStatus.DELIVERED) return;
@@ -355,8 +354,8 @@ export class VirtualPaymentService {
         where: { source_sourceOrderId: { source: MembershipGrantSource.WECHAT_VIRTUAL, sourceOrderId: order.id } },
         create: {
           userId: order.userId, planId: order.planId, source: MembershipGrantSource.WECHAT_VIRTUAL, sourceOrderId: order.id,
-          quantity: order.quantity, quotaTotal: order.plan.messageQuota * order.quantity, startsAt: now,
-          expiresAt: new Date(now.getTime() + order.plan.membershipDays * 86_400_000),
+          quantity: order.quantity, quotaTotal: (order.messageQuota ?? order.plan.messageQuota) * order.quantity, startsAt: now,
+          expiresAt: new Date(now.getTime() + (order.membershipDays ?? order.plan.membershipDays) * order.quantity * 86_400_000),
         },
         update: {},
       });
@@ -367,16 +366,6 @@ export class VirtualPaymentService {
     });
   }
 
-  private async accessToken() {
-    const cfg = config();
-    if (!cfg.WECHAT_MINI_APPID || !cfg.WECHAT_MINI_SECRET) throw new BadRequestException('服务端未配置微信小程序 AppID/Secret');
-    const url = new URL('https://api.weixin.qq.com/cgi-bin/token');
-    url.searchParams.set('grant_type', 'client_credential'); url.searchParams.set('appid', cfg.WECHAT_MINI_APPID); url.searchParams.set('secret', cfg.WECHAT_MINI_SECRET);
-    const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-    const result = await response.json() as { access_token?: string; errmsg?: string };
-    if (!response.ok || !result.access_token) throw new BadRequestException(`获取微信 access_token 失败：${result.errmsg || '未知错误'}`);
-    return result.access_token;
-  }
 }
 
 @Controller('virtual-payment')
@@ -395,11 +384,14 @@ export class VirtualPaymentController {
   @Post('orders/:id/query') query(@Req() request: AuthRequest, @Param('id') id: string) { return this.payment.query(request, id); }
 
   @UseGuards(AuthGuard)
+  @Post('orders/:id/checkout') checkout(@Req() request: AuthRequest, @Param('id') id: string) { return this.payment.checkout(request, id); }
+
+  @UseGuards(AuthGuard)
   @Get('entitlements') entitlements(@Req() request: AuthRequest) { return this.payment.entitlements(request); }
 
   @Get('notify') verify(@Query() query: Record<string, string | undefined>) { return this.payment.verifyUrl(query); }
 
-  @Post('notify') notify(@Req() request: Request, @Res({ passthrough: true }) response: Response) { return this.payment.notify(request, response); }
+  @HttpCode(200) @Post('notify') notify(@Req() request: Request, @Res({ passthrough: true }) response: Response) { return this.payment.notify(request, response); }
 }
 
 @Controller('admin/virtual-payment')

@@ -55,10 +55,10 @@ export class MiniAuthController {
   async silent(@Body(new ZodPipe(codeSchema)) body: z.infer<typeof codeSchema>) {
     const identity = await exchangeCode(body.code);
     const user = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid } });
-    if (!user || user.status !== 'ACTIVE') throw new NotFoundException('MINI_ACCOUNT_NOT_FOUND');
+    if (!user) return { token: null, needsRegistration: true };
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException('账号已停用');
     await this.prisma.user.update({ where: { id: user.id }, data: { miniSessionKeyEncrypted: encryptSecret(identity.sessionKey), miniUnionid: identity.unionid ?? user.miniUnionid } });
     const publicUser = this.publicUser(user);
-    if (publicUser.needsProfile) return { token: null, expiresAt: null, user: publicUser };
     const session = await issueSession(this.prisma, user.id);
     return { ...session, user: publicUser };
   }
@@ -67,10 +67,12 @@ export class MiniAuthController {
   async login(@Body(new ZodPipe(profileSchema)) body: z.infer<typeof profileSchema>) {
     const identity = await exchangeCode(body.code);
     let user = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid } });
-    if (user?.status !== 'ACTIVE') throw new UnauthorizedException('账号已停用');
+    if (user && user.status !== 'ACTIVE') throw new UnauthorizedException('账号已停用');
     if (!user) {
-      user = await this.prisma.user.create({
-        data: {
+      user = await this.prisma.user.upsert({
+        where: { miniOpenid: identity.openid },
+        update: { miniSessionKeyEncrypted: encryptSecret(identity.sessionKey) },
+        create: {
           username: safeMiniUsername(identity.openid),
           passwordHash: await hash(randomToken(), 10),
           miniOpenid: identity.openid,
@@ -94,6 +96,7 @@ export class MiniAuthController {
   @Post('bind')
   async bind(@Req() request: AuthRequest, @Body(new ZodPipe(codeSchema)) body: z.infer<typeof codeSchema>) {
     const identity = await exchangeCode(body.code);
+    if (request.user.miniOpenid && request.user.miniOpenid !== identity.openid) throw new BadRequestException('当前账号已绑定其他微信，不能直接替换');
     const owner = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid }, select: { id: true } });
     if (owner && owner.id !== request.user.id) throw new BadRequestException('该微信已绑定其他平台账号');
     const user = await this.prisma.user.update({ where: { id: request.user.id }, data: { miniOpenid: identity.openid, miniUnionid: identity.unionid, miniSessionKeyEncrypted: encryptSecret(identity.sessionKey) } });

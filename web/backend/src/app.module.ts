@@ -1,3 +1,5 @@
+import { AlipayConfigService, AlipayAdminController } from './alipay-config';
+import { OrdersService, OrdersController, AdminOrdersController } from './orders';
 import { Module } from '@nestjs/common';
 import { AccountsController } from './accounts';
 import { AuthController, AuthGuard } from './auth';
@@ -19,9 +21,11 @@ import { PaymentsController, WechatPayService } from './payments';
 import { ImportsController, ImportService } from './imports';
 import { VirtualPaymentAdminController, VirtualPaymentController, VirtualPaymentService } from './virtual-payment';
 import { AlipayController, AlipayService } from './alipay';
+import { IdentityController, IdentityService } from './identity';
+import { WechatAccessService } from './wechat-access';
 
 @Module({
-  controllers: [HealthController, FeedbackController, AuthController, MiniAuthController, AccountsController, FriendsController, SegmentsController, TemplatesController, VariablesController, DraftsController, TasksController, AiController, MiniAiController, AdminController, PaymentsController, ImportsController, VirtualPaymentController, VirtualPaymentAdminController, AlipayController],
-  providers: [PrismaService, AuthGuard, MailService, ExternalApiService, AiService, AdminService, WechatPayService, ImportService, VirtualPaymentService, AlipayService],
+  controllers: [IdentityController, AlipayAdminController, OrdersController, AdminOrdersController, HealthController, FeedbackController, AuthController, MiniAuthController, AccountsController, FriendsController, SegmentsController, TemplatesController, VariablesController, DraftsController, TasksController, AiController, MiniAiController, AdminController, PaymentsController, ImportsController, VirtualPaymentController, VirtualPaymentAdminController, AlipayController],
+  providers: [AlipayConfigService, OrdersService, PrismaService, AuthGuard, MailService, ExternalApiService, AiService, AdminService, WechatPayService, ImportService, VirtualPaymentService, AlipayService, IdentityService, WechatAccessService],
 })
 export class AppModule {}

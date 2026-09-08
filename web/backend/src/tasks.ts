@@ -147,6 +147,7 @@ export class TasksController {
             scheduledAt, status, idempotencyKey: body.idempotencyKey,
           },
         });
+        await this.reserveMembership(tx, request.user.id, taskId, messageRows.length);
         await tx.taskAccountSetting.createMany({
           data: selections.map((selection) => {
             const account = accountMap.get(selection.accountId)!;
@@ -207,13 +208,15 @@ export class TasksController {
   async cancel(@Req() request: AuthRequest, @Param('id') id: string) {
     const task = await this.prisma.task.findFirst({ where: { id, ownerId: request.user.id } });
     if (!task) throw new NotFoundException('任务不存在');
-    await this.prisma.$transaction([
-      this.prisma.taskMessage.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM tasks WHERE id=${id}::uuid FOR UPDATE`;
+      const cancelled = await tx.taskMessage.updateMany({
         where: { taskId: id, status: { in: ['PENDING', 'RETRY_WAIT'] } },
         data: { status: MessageStatus.CANCELLED, errorCode: 'USER_CANCELLED', errorMessage: '用户取消' },
-      }),
-      this.prisma.task.update({ where: { id }, data: { status: TaskStatus.CANCELLED } }),
-    ]);
+      });
+      await tx.task.update({ where: { id }, data: { status: TaskStatus.CANCELLED } });
+      await this.releaseMembership(tx, id, cancelled.count);
+    });
     return { ok: true };
   }
 
@@ -246,6 +249,44 @@ export class TasksController {
         maxDelay: message.maxDelay,
       }],
     });
+  }
+
+  private async reserveMembership(tx: Prisma.TransactionClient, userId: string, taskId: string, amount: number) {
+    const required = await tx.featureFlag.findUnique({ where: { key: 'membership_required' } });
+    if (!required?.enabled) return;
+    await tx.$queryRaw`SELECT id FROM membership_grants WHERE user_id=${userId}::uuid AND expires_at > NOW() ORDER BY expires_at,id FOR UPDATE`;
+    const grants = await tx.membershipGrant.findMany({ where: { userId, expiresAt: { gt: new Date() } }, orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }] });
+    if (!grants.length) throw new BadRequestException('当前没有有效会员权益，请先购买套餐');
+    const unlimited = grants.find((grant) => grant.quotaTotal === 0);
+    if (unlimited) {
+      await tx.membershipUsage.create({ data: { userId, taskId, grantId: unlimited.id, amount: 0 } });
+      return;
+    }
+    const available = grants.reduce((sum, grant) => sum + Math.max(0, grant.quotaTotal - grant.quotaUsed), 0);
+    if (available < amount) throw new BadRequestException(`剩余消息额度不足：需要 ${amount} 条，当前可用 ${available} 条`);
+    let remaining = amount;
+    for (const grant of grants) {
+      const take = Math.min(remaining, Math.max(0, grant.quotaTotal - grant.quotaUsed));
+      if (!take) continue;
+      await tx.membershipGrant.update({ where: { id: grant.id }, data: { quotaUsed: { increment: take } } });
+      await tx.membershipUsage.create({ data: { userId, taskId, grantId: grant.id, amount: take } });
+      remaining -= take;
+      if (!remaining) break;
+    }
+  }
+
+  private async releaseMembership(tx: Prisma.TransactionClient, taskId: string, amount: number) {
+    if (!amount) return;
+    const usages = await tx.membershipUsage.findMany({ where: { taskId }, orderBy: { createdAt: 'desc' } });
+    let remaining = amount;
+    for (const usage of usages) {
+      const release = Math.min(remaining, usage.amount - usage.refunded);
+      if (!release) continue;
+      await tx.membershipGrant.update({ where: { id: usage.grantId }, data: { quotaUsed: { decrement: release } } });
+      await tx.membershipUsage.update({ where: { id: usage.id }, data: { refunded: { increment: release } } });
+      remaining -= release;
+      if (!remaining) break;
+    }
   }
 
   private async prepare(

@@ -1,0 +1,43 @@
+import 'reflect-metadata';
+import {describe,it,expect,vi} from 'vitest';
+import {createCipheriv,createHash,randomBytes} from 'node:crypto';
+import {AlipayService,assertAlipayPayment,yuanToFen} from './alipay';
+import {AlipayConfigService,AlipaySettings,alipayConfigSchema} from './alipay-config';
+import {decryptWechatPush,parseWechatPush} from './wechat-push';
+import {OrdersService} from './orders';
+import {VirtualPaymentService} from './virtual-payment';
+
+const cfg:AlipaySettings={appId:'2026000000000001',sellerId:'2088000000000001',gateway:'https://openapi.alipay.com/gateway.do',privateKey:'private',publicKey:'public',keyType:'PKCS1',notifyUrl:'https://example.com/api/v1/alipay/notify',expireMinutes:30,enabled:true};
+const base={id:'11111111-1111-4111-8111-111111111111',userId:'u',planId:'p',outTradeNo:'WAorder',amountFen:990,status:'PENDING',expiresAt:new Date(Date.now()-1000),qrCode:'qr',encryptedConfig:null,paidAt:null,messageQuota:100,membershipDays:30,plan:{messageQuota:999,membershipDays:365},queriedAt:null};
+const valid={out_trade_no:'WAorder',total_amount:'9.90',app_id:cfg.appId,seller_id:cfg.sellerId,trade_no:'ali123',trade_status:'TRADE_SUCCESS'};
+function harness(){
+ let row:any={...base};const grants=new Map();
+ const tx:any={$queryRaw:vi.fn().mockResolvedValue([]),alipayOrder:{findUniqueOrThrow:vi.fn(async()=>row),update:vi.fn(async({data}:any)=>row={...row,...data})},membershipGrant:{upsert:vi.fn(async({create}:any)=>{if(!grants.has(create.sourceOrderId))grants.set(create.sourceOrderId,create);}),updateMany:vi.fn().mockResolvedValue({count:1})}};
+ const prisma:any={...tx,$transaction:vi.fn(async(fn:any)=>fn(tx)),alipayOrder:{...tx.alipayOrder,findUnique:vi.fn(async()=>row),findFirst:vi.fn(async()=>row),updateMany:vi.fn(async({data}:any)=>{row={...row,...data};return {count:1};})}};
+ const exec=vi.fn();const settings:any={settings:async()=>cfg,forOrder:async()=>cfg,sdk:()=>({exec,checkNotifySignV2:()=>true})};
+ return {service:new AlipayService(prisma,settings),prisma,tx,exec,grants,get row(){return row;}};
+}
+describe('payment validation and transitions',()=>{
+ it('converts cents exactly and rejects malformed amounts',()=>{expect(yuanToFen('9.9')).toBe(990);for(const v of ['1e2','9.999','-1','','Infinity','01.00'])expect(yuanToFen(v)).toBeUndefined();});
+ it('requires correct order, amount, application, seller and transaction',()=>{expect(()=>assertAlipayPayment(base,valid,cfg,true)).not.toThrow();for(const [key,value] of Object.entries({out_trade_no:'other',total_amount:'0.01',app_id:'other',seller_id:'other',trade_no:''}))expect(()=>assertAlipayPayment(base,{...valid,[key]:value},cfg,true)).toThrow();});
+ it('restricts configured gateways and notify scheme',()=>{expect(alipayConfigSchema.safeParse({...cfg,gateway:'https://attacker.example/gateway'}).success).toBe(false);expect(alipayConfigSchema.safeParse({...cfg,notifyUrl:'http://example.com'}).success).toBe(false);});
+ it('keeps keys out of admin responses',async()=>{const c=new AlipayConfigService({} as any);vi.spyOn(c,'settings').mockResolvedValue(cfg);const view=await c.view();expect(view.hasPrivateKey).toBe(true);expect(JSON.stringify(view)).not.toContain('"private"');expect(view).not.toHaveProperty('privateKey');});
+ it('queries overdue orders before closing; paid order is never cancelled',async()=>{const h=harness();h.exec.mockResolvedValue({code:'10000',tradeStatus:'TRADE_SUCCESS',outTradeNo:'WAorder',totalAmount:'9.90',tradeNo:'ali123'});await h.service.reconcile(h.row);expect(h.exec.mock.calls.map(c=>c[0])).toEqual(['alipay.trade.query']);expect(h.row.status).toBe('PAID');expect(h.grants.size).toBe(1);});
+ it('closes only a confirmed unpaid order and never calls trade.cancel',async()=>{const h=harness();h.exec.mockResolvedValueOnce({code:'10000',tradeStatus:'WAIT_BUYER_PAY'}).mockResolvedValueOnce({code:'10000'});await h.service.reconcile(h.row);expect(h.exec.mock.calls.map(c=>c[0])).toEqual(['alipay.trade.query','alipay.trade.close']);expect(h.row.status).toBe('CLOSED');});
+ it('does not infer closure from a network failure',async()=>{const h=harness();h.exec.mockRejectedValue(new Error('network'));await h.service.reconcile(h.row);expect(h.row.status).toBe('PENDING');expect(h.grants.size).toBe(0);});
+ it('duplicate notify delivers once using snapshotted quota/duration',async()=>{const h=harness();expect(await h.service.notify({body:valid} as any)).toBe('success');expect(await h.service.notify({body:valid} as any)).toBe('success');expect(h.grants.size).toBe(1);const grant=[...h.grants.values()][0];expect(grant.quotaTotal).toBe(100);expect(grant.expiresAt-grant.startsAt).toBe(30*86400000);expect(h.tx.$queryRaw).toHaveBeenCalled();});
+ it('wrong amount notification neither marks paid nor grants',async()=>{const h=harness();expect(await h.service.notify({body:{...valid,total_amount:'0.01'}} as any)).toBe('fail');expect(h.grants.size).toBe(0);expect(h.row.status).toBe('PENDING');});
+ it('paid -> refunded revokes the grant and late success cannot resurrect it',async()=>{const h=harness();await h.service.notify({body:valid} as any);await h.service.notify({body:{...valid,trade_status:'TRADE_CLOSED'}} as any);expect(h.row.status).toBe('REFUNDED');expect(h.tx.membershipGrant.updateMany).toHaveBeenCalled();await h.service.notify({body:valid} as any);expect(h.row.status).toBe('REFUNDED');});
+ it('user order listing always scopes by owner and never returns config/raw secrets',async()=>{const findMany=vi.fn().mockResolvedValue([{...base,encryptedConfig:'secret',notifyRaw:{private:'hidden'}}]);const svc=new OrdersService({alipayOrder:{findMany,count:async()=>1}} as any,{} as any,{} as any);const r=await svc.list('owner',{channel:'ALIPAY',page:1});expect(findMany.mock.calls[0][0].where.userId).toBe('owner');expect(r.items[0]).not.toHaveProperty('encryptedConfig');expect(r.items[0]).not.toHaveProperty('notifyRaw');});
+ it('virtual checkout rejects a different WeChat identity',async()=>{const svc=new VirtualPaymentService({virtualPaymentOrder:{findFirst:async()=>({...base,expiresAt:new Date(Date.now()+60000),openid:'original'})}} as any,{} as any);vi.spyOn(svc as any,'paymentConfig').mockResolvedValue({enabled:true});await expect(svc.checkout({user:{id:'u',miniOpenid:'other',miniSessionKeyEncrypted:'x'}} as any,base.id,false)).rejects.toThrow('重新微信登录');});
+});
+describe('WeChat push authentication',()=>{
+ const token='push-token',appId='wx-test',timestamp='1700000000',nonce='nonce';const aesKey=randomBytes(32);const keyText=aesKey.toString('base64').replace(/=$/,'');
+ const payload='<xml><Event>xpay_goods_deliver_notify</Event><OutTradeNo>order</OutTradeNo></xml>';
+ const sha=(s:string[])=>createHash('sha1').update(s.sort().join('')).digest('hex');
+ function encrypted(receiver=appId){const content=Buffer.from(payload),size=Buffer.alloc(4);size.writeUInt32BE(content.length);const data=Buffer.concat([randomBytes(16),size,content,Buffer.from(receiver)]),padding=32-data.length%32;const c=createCipheriv('aes-256-cbc',aesKey,aesKey.subarray(0,16));c.setAutoPadding(false);return Buffer.concat([c.update(Buffer.concat([data,Buffer.alloc(padding,padding)])),c.final()]).toString('base64');}
+ it('rejects unsigned XML and JSON callbacks',()=>{for(const raw of [payload,'{"Event":"xpay_goods_deliver_notify"}'])expect(()=>parseWechatPush(raw,{}, {token,appId,mode:'PLAINTEXT'})).toThrow();});
+ it('rejects plaintext in secure mode, including correctly signed URL',()=>{expect(()=>parseWechatPush(payload,{timestamp,nonce,signature:sha([token,timestamp,nonce])},{token,appId,mode:'SECURE'})).toThrow();});
+ it('decrypts WeChat 32-byte padding and checks receiving AppID',()=>{expect(decryptWechatPush(encrypted(),keyText,appId)).toBe(payload);expect(()=>decryptWechatPush(encrypted('other'),keyText,appId)).toThrow('接收方');});
+ it('validates encrypted signature before parsing',()=>{const blob=encrypted(),raw=JSON.stringify({Encrypt:blob});const q={timestamp,nonce,msg_signature:sha([token,timestamp,nonce,blob])};expect(parseWechatPush(raw,q,{token,appId,mode:'SECURE',aesKey:keyText}).OutTradeNo).toBe('order');expect(()=>parseWechatPush(raw,{...q,msg_signature:'forged'},{token,appId,mode:'SECURE',aesKey:keyText})).toThrow();});
+});
