@@ -197,7 +197,7 @@ export function AdminPage() {
   return <div className="page-enter space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div><p className="font-mono text-[11px] uppercase tracking-[.22em] text-neutral-400">Admin Console</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.03em]">平台配置</h1><p className="mt-2 text-sm text-neutral-500">密钥只写入服务端加密字段，列表和日志不会返回明文。</p></div>
-      <div className="flex gap-2"><Button asChild variant="outline"><Link to="/admin/templates">内容库审核</Link></Button><Button variant="outline" onClick={() => void load()}><RefreshCw className="h-4 w-4" />刷新</Button></div>
+      <div className="flex gap-2"><Button asChild variant="outline"><Link to="/admin/payment">支付与套餐</Link></Button><Button asChild variant="outline"><Link to="/admin/templates">内容库审核</Link></Button><Button variant="outline" onClick={() => void load()}><RefreshCw className="h-4 w-4" />刷新</Button></div>
     </header>
     {error && <ErrorState message={error} />}
     {notice && <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900">{notice}</div>}

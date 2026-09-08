@@ -62,6 +62,19 @@ P3/P4/P5 还需要在服务端 `.env` 设置：
     WECHAT_MINI_APPID="小程序 AppID"
     WECHAT_MINI_SECRET="小程序 Secret"
 
+如果要启用本次支付功能，还需要配置支付宝订单码支付：
+
+    ALIPAY_GATEWAY="https://openapi-sandbox.dl.alipaydev.com/gateway.do"
+    ALIPAY_APP_ID="支付宝沙箱或正式 AppID"
+    ALIPAY_PRIVATE_KEY="应用私钥（建议使用 PKCS1）"
+    ALIPAY_KEY_TYPE=PKCS1
+    ALIPAY_PUBLIC_KEY="支付宝公钥"
+    ALIPAY_SELLER_ID="可选的商家账号 ID"
+    ALIPAY_NOTIFY_URL="https://你的域名/api/v1/alipay/notify"
+    ALIPAY_ORDER_EXPIRE_MINUTES=30
+
+沙箱联调请使用支付宝 CLI 创建的沙箱应用和测试账号；私钥、公钥和测试账号不能提交到 Git。正式环境把网关改为 `https://openapi.alipay.com/gateway.do`，并换成正式应用密钥。小程序虚拟支付的 AppID、OfferID、AppKey 和推送 Token 在 Web 管理员页面“支付与套餐”配置，AppKey 不写入 `.env`。
+
 `APP_ENCRYPTION_KEY` 用于加密 AI/API 密钥，丢失后无法解密已保存的通道密钥；不要在前端、小程序或 Git 中使用它。微信支付 V3 只有在开通支付并准备好商户证书后再填写 `WECHAT_PAY_MCH_ID`、`WECHAT_PAY_SERIAL_NO`、`WECHAT_PAY_PRIVATE_KEY`、`WECHAT_PAY_API_V3_KEY`、`WECHAT_PAY_PLATFORM_CERT` 和 `WECHAT_PAY_NOTIFY_URL`。支付回调地址必须是公网 HTTPS。
 
 若数据库或 Redis 密码含有 @、#、/、?、: 等字符，必须先对用户名和密码做 URL 编码。.env 不能提交到 Git。
@@ -247,3 +260,5 @@ P2 新增好友分组/标签、模板、变量、草稿及任务内容快照表�
 扫码支付流程是：Web/API 创建待支付订单并生成小程序码 → 用户扫码进入 `pages/pay/index` → 小程序完成身份授权 → 服务端以该 openid 创建 JSAPI 预支付订单 → 小程序调用 `wx.requestPayment` → 微信支付回调验签、解密并更新订单。没有微信支付商户号、商户私钥、平台证书和 API v3 Key 时，只能联调身份和二维码入口，不能宣称支付已上线。
 
 AI 通道和外部 API 在管理员后台配置。AI/API 密钥由 `APP_ENCRYPTION_KEY` 加密保存；天气等动态变量配置为外部 API 的响应路径，例如 `data.weather.text`，任务提交时会请求并冻结变量值，API 失败会阻止发送，不会发送占位符。
+
+本次支付版本更新还需要执行 `20260908100000_virtual_payment` 和 `20260908110000_alipay_and_membership_grants` 两份迁移。第二份迁移会把原 `virtual_entitlements` 中的记录复制到 `membership_grants` 后再移除旧表；执行前请备份 PostgreSQL。迁移完成后进入 Web“会员套餐”页面做支付宝沙箱测试，进入管理员“支付与套餐”完成小程序套餐和推送配置。

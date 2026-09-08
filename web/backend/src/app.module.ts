@@ -17,9 +17,11 @@ import { AdminController, AdminService } from './admin';
 import { ExternalApiService } from './external-api';
 import { PaymentsController, WechatPayService } from './payments';
 import { ImportsController, ImportService } from './imports';
+import { VirtualPaymentAdminController, VirtualPaymentController, VirtualPaymentService } from './virtual-payment';
+import { AlipayController, AlipayService } from './alipay';
 
 @Module({
-  controllers: [HealthController, FeedbackController, AuthController, MiniAuthController, AccountsController, FriendsController, SegmentsController, TemplatesController, VariablesController, DraftsController, TasksController, AiController, MiniAiController, AdminController, PaymentsController, ImportsController],
-  providers: [PrismaService, AuthGuard, MailService, ExternalApiService, AiService, AdminService, WechatPayService, ImportService],
+  controllers: [HealthController, FeedbackController, AuthController, MiniAuthController, AccountsController, FriendsController, SegmentsController, TemplatesController, VariablesController, DraftsController, TasksController, AiController, MiniAiController, AdminController, PaymentsController, ImportsController, VirtualPaymentController, VirtualPaymentAdminController, AlipayController],
+  providers: [PrismaService, AuthGuard, MailService, ExternalApiService, AiService, AdminService, WechatPayService, ImportService, VirtualPaymentService, AlipayService],
 })
 export class AppModule {}

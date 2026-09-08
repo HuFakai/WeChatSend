@@ -7,4 +7,5 @@ Page({
   accounts() { wx.navigateTo({ url: '/pages/accounts/index' }); },
   friends() { wx.navigateTo({ url: '/pages/friends/index' }); },
   ai() { wx.navigateTo({ url: '/pages/ai/index' }); },
+  membership() { wx.navigateTo({ url: '/pages/pay/index' }); },
 });

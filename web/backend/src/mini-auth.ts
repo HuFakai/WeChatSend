@@ -15,6 +15,7 @@ import { AuthGuard, AuthRequest, issueSession } from './auth';
 import { config } from './config';
 import { randomToken } from './lib';
 import { PrismaService } from './prisma.service';
+import { encryptSecret } from './secrets';
 import { ZodPipe } from './zod.pipe';
 
 const profileSchema = z.object({
@@ -25,7 +26,7 @@ const profileSchema = z.object({
 
 const codeSchema = z.object({ code: z.string().trim().min(1).max(256) });
 
-type CodeSession = { openid: string; unionid?: string };
+type CodeSession = { openid: string; unionid?: string; sessionKey: string };
 
 async function exchangeCode(code: string): Promise<CodeSession> {
   const cfg = config();
@@ -36,9 +37,10 @@ async function exchangeCode(code: string): Promise<CodeSession> {
   url.searchParams.set('js_code', code);
   url.searchParams.set('grant_type', 'authorization_code');
   const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  const result = await response.json() as { openid?: string; unionid?: string; errcode?: number; errmsg?: string };
+  const result = await response.json() as { openid?: string; unionid?: string; session_key?: string; errcode?: number; errmsg?: string };
   if (!response.ok || !result.openid) throw new UnauthorizedException(`微信登录失败：${result.errmsg || 'code 无效或已使用'}`);
-  return { openid: result.openid, unionid: result.unionid };
+  if (!result.session_key) throw new UnauthorizedException('微信登录未返回 session_key');
+  return { openid: result.openid, unionid: result.unionid, sessionKey: result.session_key };
 }
 
 function safeMiniUsername(openid: string) {
@@ -54,6 +56,7 @@ export class MiniAuthController {
     const identity = await exchangeCode(body.code);
     const user = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid } });
     if (!user || user.status !== 'ACTIVE') throw new NotFoundException('MINI_ACCOUNT_NOT_FOUND');
+    await this.prisma.user.update({ where: { id: user.id }, data: { miniSessionKeyEncrypted: encryptSecret(identity.sessionKey), miniUnionid: identity.unionid ?? user.miniUnionid } });
     const publicUser = this.publicUser(user);
     if (publicUser.needsProfile) return { token: null, expiresAt: null, user: publicUser };
     const session = await issueSession(this.prisma, user.id);
@@ -72,6 +75,7 @@ export class MiniAuthController {
           passwordHash: await hash(randomToken(), 10),
           miniOpenid: identity.openid,
           miniUnionid: identity.unionid,
+          miniSessionKeyEncrypted: encryptSecret(identity.sessionKey),
           nickname: body.nickname || null,
           avatarUrl: body.avatarUrl || null,
         },
@@ -79,7 +83,7 @@ export class MiniAuthController {
     } else {
       user = await this.prisma.user.update({
         where: { id: user.id },
-        data: { miniUnionid: identity.unionid ?? user.miniUnionid, nickname: body.nickname ?? user.nickname, avatarUrl: body.avatarUrl ?? user.avatarUrl },
+        data: { miniUnionid: identity.unionid ?? user.miniUnionid, miniSessionKeyEncrypted: encryptSecret(identity.sessionKey), nickname: body.nickname ?? user.nickname, avatarUrl: body.avatarUrl ?? user.avatarUrl },
       });
     }
     const session = await issueSession(this.prisma, user.id);
@@ -92,7 +96,7 @@ export class MiniAuthController {
     const identity = await exchangeCode(body.code);
     const owner = await this.prisma.user.findUnique({ where: { miniOpenid: identity.openid }, select: { id: true } });
     if (owner && owner.id !== request.user.id) throw new BadRequestException('该微信已绑定其他平台账号');
-    const user = await this.prisma.user.update({ where: { id: request.user.id }, data: { miniOpenid: identity.openid, miniUnionid: identity.unionid } });
+    const user = await this.prisma.user.update({ where: { id: request.user.id }, data: { miniOpenid: identity.openid, miniUnionid: identity.unionid, miniSessionKeyEncrypted: encryptSecret(identity.sessionKey) } });
     return this.publicUser(user);
   }
 

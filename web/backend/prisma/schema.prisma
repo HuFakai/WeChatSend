@@ -91,43 +91,80 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum VirtualMessageMode {
+  PLAINTEXT
+  COMPATIBLE
+  SECURE
+}
+
+enum VirtualDataFormat {
+  XML
+  JSON
+}
+
+enum VirtualPaymentOrderStatus {
+  PENDING
+  PAID
+  DELIVERED
+  FAILED
+  CLOSED
+  REFUNDED
+}
+
+enum MembershipGrantSource {
+  WECHAT_VIRTUAL
+  ALIPAY
+}
+
+enum AlipayOrderStatus {
+  PENDING
+  PAID
+  CLOSED
+  FAILED
+  REFUNDED
+}
+
 model User {
-  id                String             @id @default(uuid()) @db.Uuid
-  username          String             @unique
-  passwordHash      String             @map("password_hash")
-  role              UserRole           @default(USER)
-  timezone          String             @default("Asia/Shanghai")
-  miniOpenid        String?            @unique @map("mini_openid")
-  miniUnionid       String?            @map("mini_unionid")
-  nickname          String?
-  avatarUrl         String?            @map("avatar_url")
-  status            UserStatus         @default(ACTIVE)
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  sessions          Session[]
-  accounts          WechatAccount[]
-  friends           Friend[]
-  tasks             Task[]
-  friendGroups      FriendGroup[]
-  friendTags        FriendTag[]
-  templates         MessageTemplate[]
-  templateFavorites TemplateFavorite[]
-  variables         CustomVariable[]
-  drafts            TaskDraft[]
-  paymentOrders     PaymentOrder[]
+  id                      String                @id @default(uuid()) @db.Uuid
+  username                String                @unique
+  passwordHash            String                @map("password_hash")
+  role                    UserRole              @default(USER)
+  timezone                String                @default("Asia/Shanghai")
+  miniOpenid              String?               @unique @map("mini_openid")
+  miniUnionid             String?               @map("mini_unionid")
+  nickname                String?
+  avatarUrl               String?               @map("avatar_url")
+  miniSessionKeyEncrypted String?               @map("mini_session_key_encrypted")
+  status                  UserStatus            @default(ACTIVE)
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  sessions                Session[]
+  accounts                WechatAccount[]
+  friends                 Friend[]
+  tasks                   Task[]
+  friendGroups            FriendGroup[]
+  friendTags              FriendTag[]
+  templates               MessageTemplate[]
+  templateFavorites       TemplateFavorite[]
+  variables               CustomVariable[]
+  drafts                  TaskDraft[]
+  paymentOrders           PaymentOrder[]
+  virtualPaymentOrders    VirtualPaymentOrder[]
+  alipayOrders            AlipayOrder[]
+  membershipGrants        MembershipGrant[]
 
   @@map("users")
 }
 
 model AiChannel {
-  id              String         @id @default(uuid()) @db.Uuid
+  id              String        @id @default(uuid()) @db.Uuid
   name            String
-  type            AiChannelType  @default(OPENAI_COMPATIBLE)
-  baseUrl         String         @map("base_url")
-  encryptedApiKey String         @map("encrypted_api_key")
-  isActive        Boolean        @default(true) @map("is_active")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  type            AiChannelType @default(OPENAI_COMPATIBLE)
+  baseUrl         String        @map("base_url")
+  encryptedApiKey String        @map("encrypted_api_key")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
   models          AiModel[]
 
   @@index([isActive, updatedAt])
@@ -135,15 +172,15 @@ model AiChannel {
 }
 
 model AiModel {
-  id           String     @id @default(uuid()) @db.Uuid
-  channelId    String     @map("channel_id") @db.Uuid
-  name         String
-  displayName  String?    @map("display_name")
-  isActive     Boolean    @default(true) @map("is_active")
+  id            String    @id @default(uuid()) @db.Uuid
+  channelId     String    @map("channel_id") @db.Uuid
+  name          String
+  displayName   String?   @map("display_name")
+  isActive      Boolean   @default(true) @map("is_active")
   contextWindow Int?      @map("context_window")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  channel      AiChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  channel       AiChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, name])
   @@index([isActive, channelId])
@@ -160,16 +197,16 @@ model FeatureFlag {
 }
 
 model ApiIntegration {
-  id              String                   @id @default(uuid()) @db.Uuid
-  name            String
-  url             String
-  method          HttpMethod
-  encryptedHeaders String?                 @map("encrypted_headers")
-  requestParams   Json?                    @map("request_params")
-  enabled         Boolean                  @default(true)
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
-  variables       ApiIntegrationVariable[]
+  id               String                   @id @default(uuid()) @db.Uuid
+  name             String
+  url              String
+  method           HttpMethod
+  encryptedHeaders String?                  @map("encrypted_headers")
+  requestParams    Json?                    @map("request_params")
+  enabled          Boolean                  @default(true)
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  variables        ApiIntegrationVariable[]
 
   @@index([enabled, updatedAt])
   @@map("api_integrations")
@@ -191,26 +228,139 @@ model ApiIntegrationVariable {
 }
 
 model PaymentOrder {
-  id          String        @id @default(uuid()) @db.Uuid
-  userId      String?       @map("user_id") @db.Uuid
-  sceneToken  String?       @unique @map("scene_token")
-  outTradeNo  String        @unique @map("out_trade_no")
-  openid      String?
-  description String
-  amountFen   Int           @map("amount_fen")
-  status      PaymentStatus @default(PENDING)
-  prepayId    String?       @map("prepay_id")
-  transactionId String?     @map("transaction_id")
-  notifyAt    DateTime?     @map("notify_at")
-  expiresAt   DateTime      @map("expires_at")
-  notifyRaw   Json?         @map("notify_raw")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  user        User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String?       @map("user_id") @db.Uuid
+  sceneToken    String?       @unique @map("scene_token")
+  outTradeNo    String        @unique @map("out_trade_no")
+  openid        String?
+  description   String
+  amountFen     Int           @map("amount_fen")
+  status        PaymentStatus @default(PENDING)
+  prepayId      String?       @map("prepay_id")
+  transactionId String?       @map("transaction_id")
+  notifyAt      DateTime?     @map("notify_at")
+  expiresAt     DateTime      @map("expires_at")
+  notifyRaw     Json?         @map("notify_raw")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
   @@map("payment_orders")
+}
+
+model VirtualPaymentConfig {
+  id                      String             @id @default("default")
+  appId                   String             @map("app_id")
+  offerId                 String             @map("offer_id")
+  encryptedAppKey         String             @map("encrypted_app_key")
+  pushToken               String             @map("push_token")
+  encryptedEncodingAesKey String?            @map("encrypted_encoding_aes_key")
+  messageMode             VirtualMessageMode @default(PLAINTEXT) @map("message_mode")
+  dataFormat              VirtualDataFormat  @default(XML) @map("data_format")
+  env                     Int                @default(0)
+  notifyUrl               String?            @map("notify_url")
+  enabled                 Boolean            @default(false)
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  @@map("virtual_payment_configs")
+}
+
+model MembershipPlan {
+  id             String                @id @default(uuid()) @db.Uuid
+  code           String                @unique
+  name           String
+  productId      String                @map("product_id")
+  description    String
+  priceFen       Int                   @map("price_fen")
+  membershipDays Int                   @default(30) @map("membership_days")
+  messageQuota   Int                   @default(0) @map("message_quota")
+  sortOrder      Int                   @default(0) @map("sort_order")
+  isActive       Boolean               @default(true) @map("is_active")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  orders         VirtualPaymentOrder[]
+  alipayOrders   AlipayOrder[]
+  grants         MembershipGrant[]
+
+  @@index([isActive, sortOrder])
+  @@map("membership_plans")
+}
+
+model VirtualPaymentOrder {
+  id          String                    @id @default(uuid()) @db.Uuid
+  userId      String                    @map("user_id") @db.Uuid
+  planId      String                    @map("plan_id") @db.Uuid
+  outTradeNo  String                    @unique @map("out_trade_no")
+  wxOrderId   String?                   @unique @map("wx_order_id")
+  openid      String
+  productId   String                    @map("product_id")
+  quantity    Int                       @default(1)
+  amountFen   Int                       @map("amount_fen")
+  attach      String
+  status      VirtualPaymentOrderStatus @default(PENDING)
+  expiresAt   DateTime                  @map("expires_at")
+  paidAt      DateTime?                 @map("paid_at")
+  deliveredAt DateTime?                 @map("delivered_at")
+  queriedAt   DateTime?                 @map("queried_at")
+  notifyRaw   Json?                     @map("notify_raw")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        MembershipPlan            @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@index([openid, status])
+  @@map("virtual_payment_orders")
+}
+
+model AlipayOrder {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @map("user_id") @db.Uuid
+  planId        String            @map("plan_id") @db.Uuid
+  outTradeNo    String            @unique @map("out_trade_no")
+  tradeNo       String?           @unique @map("trade_no")
+  subject       String
+  amountFen     Int               @map("amount_fen")
+  status        AlipayOrderStatus @default(PENDING)
+  qrCode        String?           @map("qr_code")
+  expiresAt     DateTime          @map("expires_at")
+  paidAt        DateTime?         @map("paid_at")
+  notifyAt      DateTime?         @map("notify_at")
+  notifyRaw     Json?             @map("notify_raw")
+  failureReason String?           @map("failure_reason")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan          MembershipPlan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("alipay_orders")
+}
+
+model MembershipGrant {
+  id            String                @id @default(uuid()) @db.Uuid
+  userId        String                @map("user_id") @db.Uuid
+  planId        String                @map("plan_id") @db.Uuid
+  source        MembershipGrantSource
+  sourceOrderId String                @map("source_order_id")
+  quantity      Int                   @default(1)
+  quotaTotal    Int                   @default(0) @map("quota_total")
+  quotaUsed     Int                   @default(0) @map("quota_used")
+  startsAt      DateTime              @map("starts_at")
+  expiresAt     DateTime              @map("expires_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan          MembershipPlan        @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([source, sourceOrderId])
+  @@index([userId, expiresAt])
+  @@map("membership_grants")
 }
 
 model Session {

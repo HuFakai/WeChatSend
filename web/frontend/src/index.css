@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  color: #0a0a0a;
-  background: #f7f7f5;
+  color: #12372d;
+  background: #f0fdf4;
   font-family: "Aptos", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: #f7f7f5; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #f0fdf4; }
 button, input, textarea, select { font: inherit; }
-::selection { background: #171717; color: white; }
+::selection { background: #047857; color: white; }
 
 .page-enter { animation: page-enter .34s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -19,6 +19,6 @@ button, input, textarea, select { font: inherit; }
 .field-label { display: block; margin-bottom: .45rem; font-size: .78rem; font-weight: 650; color: #404040; }
 .field-help { margin-top: .4rem; font-size: .75rem; line-height: 1.5; color: #737373; }
 .textarea { min-height: 120px; width: 100%; resize: vertical; border: 1px solid #d4d4d4; border-radius: .5rem; background: white; padding: .75rem; font-size: .875rem; line-height: 1.65; outline: none; }
-.textarea:focus { border-color: #0a0a0a; box-shadow: 0 0 0 1px #0a0a0a; }
+.textarea:focus { border-color: #059669; box-shadow: 0 0 0 1px #059669; }
 .select { height: 2.5rem; width: 100%; border: 1px solid #d4d4d4; border-radius: .5rem; background: white; padding: 0 .75rem; font-size: .875rem; outline: none; }
-.select:focus { border-color: #0a0a0a; box-shadow: 0 0 0 1px #0a0a0a; }
+.select:focus { border-color: #059669; box-shadow: 0 0 0 1px #059669; }

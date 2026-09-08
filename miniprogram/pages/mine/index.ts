@@ -6,5 +6,6 @@ Page({
   friends() { wx.navigateTo({ url: '/pages/friends/index' }); },
   templates() { wx.navigateTo({ url: '/pages/templates/index' }); },
   variables() { wx.navigateTo({ url: '/pages/variables/index' }); },
+  membership() { wx.navigateTo({ url: '/pages/pay/index' }); },
   async logout() { await post('/auth/logout').catch(() => undefined); wx.removeStorageSync('wechatsend_token'); wx.reLaunch({ url: '/pages/login/index' }); },
 });

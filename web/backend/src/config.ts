@@ -29,6 +29,14 @@ const schema = z.object({
   WECHAT_PAY_API_V3_KEY: z.string().length(32).optional(),
   WECHAT_PAY_PLATFORM_CERT: z.string().min(1).optional(),
   WECHAT_PAY_NOTIFY_URL: z.string().url().optional(),
+  ALIPAY_GATEWAY: z.string().url().default('https://openapi-sandbox.dl.alipaydev.com/gateway.do'),
+  ALIPAY_APP_ID: z.string().min(1).optional(),
+  ALIPAY_PRIVATE_KEY: z.string().min(1).optional(),
+  ALIPAY_KEY_TYPE: z.enum(['PKCS1', 'PKCS8']).default('PKCS1'),
+  ALIPAY_PUBLIC_KEY: z.string().min(1).optional(),
+  ALIPAY_SELLER_ID: z.string().min(1).optional(),
+  ALIPAY_NOTIFY_URL: z.string().url().optional(),
+  ALIPAY_ORDER_EXPIRE_MINUTES: z.coerce.number().int().min(5).max(120).default(30),
 });
 
 export type AppConfig = z.infer<typeof schema>;

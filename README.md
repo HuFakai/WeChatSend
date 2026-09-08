@@ -35,6 +35,8 @@ docker compose -f web/deploy/docker-compose.yml up -d redis
 
 Web 默认运行于 `http://localhost:5173`，API 默认运行于 `http://localhost:3100/api/v1`。
 
+会员支付：Web 端使用支付宝订单码支付；小程序端使用微信个人主体虚拟支付。支付与套餐配置、密钥边界、迁移和沙箱联调见[支付与会员套餐接入](docs/支付与会员套餐接入.md)。
+
 ## Docker 线上部署
 
 项目提供 Web、API、Worker 的生产 Compose 配置，线上 PostgreSQL 和 Redis 使用 1Panel 已有服务。首次部署、更新、连接检查、日志与回滚命令见

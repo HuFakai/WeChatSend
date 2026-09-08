@@ -15,15 +15,15 @@
   ],
   "window": {
     "navigationBarTitleText": "WeChatSend",
-    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarBackgroundColor": "#ecfdf5",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f7f7f5"
+    "backgroundColor": "#f0fdf4"
   },
   "tabBar": {
     "color": "#737373",
-    "selectedColor": "#000000",
+    "selectedColor": "#047857",
     "backgroundColor": "#ffffff",
-    "borderStyle": "black",
+    "borderStyle": "white",
     "list": [
       { "pagePath": "pages/index/index", "text": "工作台" },
       { "pagePath": "pages/tasks/index", "text": "任务" },
