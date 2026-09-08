@@ -10,7 +10,7 @@
 .record-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20rpx; }
 .record-name { font-weight: 600; }
 .record-id { max-width: 390rpx; margin-top: 8rpx; overflow-wrap: anywhere; color: #a3a3a3; font-family: monospace; font-size: 19rpx; }
-.record-times { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; margin-top: 24rpx; padding: 22rpx; border-radius: 12rpx; background: #f7f7f5; }
+.record-times { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; margin-top: 24rpx; padding: 22rpx; border-radius: 12rpx; background: #ecfdf5; }
 .record-times view { display: flex; flex-direction: column; gap: 7rpx; font-size: 21rpx; }
 .record-times text:first-child { color: #a3a3a3; }
 .record-error { margin-top: 16rpx; color: #b91c1c; font-size: 21rpx; }

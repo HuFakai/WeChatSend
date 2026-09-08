@@ -1,5 +1,5 @@
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; margin-top: 30rpx; }
 .stat { display: flex; min-height: 170rpx; flex-direction: column; justify-content: space-between; margin: 0; font-size: 24rpx; color: #737373; }
-.number { color: #0a0a0a; font-family: monospace; font-size: 56rpx; }
-.stat.dark { background: #0a0a0a; color: #a3a3a3; }.stat.dark .number { color: white; }
+.number { color: #047857; font-family: monospace; font-size: 56rpx; }
+.stat.dark { background: #047857; color: #d1fae5; }.stat.dark .number { color: white; }
 .create { margin-top: 26rpx; }.links { padding: 0 30rpx; }.link { display: flex; justify-content: space-between; padding: 30rpx 0; font-size: 28rpx; }

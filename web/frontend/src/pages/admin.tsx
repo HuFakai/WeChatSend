@@ -204,7 +204,7 @@ export function AdminPage() {
 
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2"><Settings2 className="h-4 w-4" />小程序 AI 开关</CardTitle></CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-3">{flags.map((flag) => <button key={flag.key} className={`rounded-lg border p-4 text-left ${flag.enabled ? 'border-black bg-black text-white' : 'border-neutral-200'}`} onClick={async () => { try { const next = await patch<Flag>(`/admin/feature-flags/${flag.key}`, { enabled: !flag.enabled }); setFlags((items) => (items ?? []).map((item) => item.key === flag.key ? next : item)); } catch (reason) { setError((reason as Error).message); } }}><span className="flex items-center justify-between"><b className="text-sm">{flagLabels[flag.key] || flag.key}</b>{flag.enabled && <Check className="h-4 w-4" />}</span><span className={flag.enabled ? 'text-xs text-neutral-400' : 'text-xs text-neutral-500'}>{flag.enabled ? '已开启' : '已关闭'}</span></button>)}</CardContent>
+      <CardContent className="grid gap-3 sm:grid-cols-3">{flags.map((flag) => <button key={flag.key} className={`rounded-lg border p-4 text-left ${flag.enabled ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-neutral-200'}`} onClick={async () => { try { const next = await patch<Flag>(`/admin/feature-flags/${flag.key}`, { enabled: !flag.enabled }); setFlags((items) => (items ?? []).map((item) => item.key === flag.key ? next : item)); } catch (reason) { setError((reason as Error).message); } }}><span className="flex items-center justify-between"><b className="text-sm">{flagLabels[flag.key] || flag.key}</b>{flag.enabled && <Check className="h-4 w-4" />}</span><span className={flag.enabled ? 'text-xs text-emerald-100' : 'text-xs text-neutral-500'}>{flag.enabled ? '已开启' : '已关闭'}</span></button>)}</CardContent>
     </Card>
 
     <div className="grid gap-5 lg:grid-cols-2">
@@ -239,5 +239,5 @@ export function AdminPage() {
 }
 
 function InputRow({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
-  return <label className="block"><span className="field-label">{label}</span><input className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black" type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required /></label>;
+  return <label className="block"><span className="field-label">{label}</span><input className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600" type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required /></label>;
 }

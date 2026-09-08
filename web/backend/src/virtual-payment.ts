@@ -29,7 +29,7 @@ const configSchema = z.object({
   appId: z.string().trim().min(1).max(64),
   offerId: z.string().trim().min(1).max(64),
   appKey: z.string().trim().min(1).max(512).optional(),
-  pushToken: z.string().trim().min(1).max(256),
+  pushToken: z.string().trim().min(1).max(256).optional(),
   encodingAesKey: z.string().trim().max(512).optional().nullable(),
   messageMode: z.enum(['PLAINTEXT', 'COMPATIBLE', 'SECURE']).default('PLAINTEXT'),
   dataFormat: z.enum(['XML', 'JSON']).default('XML'),
@@ -216,7 +216,10 @@ export class VirtualPaymentService {
     const nonce = query.nonce;
     const echostr = query.echostr;
     if (!token || !timestamp || !nonce || !echostr) throw new BadRequestException('虚拟支付推送校验参数不完整');
-    if (!sameText(query.signature || query.msg_signature, sha1([token, timestamp, nonce].sort().join('')))) throw new BadRequestException('虚拟支付推送签名无效');
+    const expected = query.msg_signature
+      ? sha1([token, timestamp, nonce, echostr].sort().join(''))
+      : sha1([token, timestamp, nonce].sort().join(''));
+    if (!sameText(query.signature || query.msg_signature, expected)) throw new BadRequestException('虚拟支付推送签名无效');
     return echostr;
   }
 
@@ -239,8 +242,8 @@ export class VirtualPaymentService {
   async adminConfig() {
     const current = await this.prisma.virtualPaymentConfig.findUnique({ where: { id: 'default' } });
     return current ? {
-      id: current.id, appId: current.appId, offerId: current.offerId, pushToken: current.pushToken,
-      hasAppKey: true, hasEncodingAesKey: Boolean(current.encryptedEncodingAesKey), messageMode: current.messageMode,
+      id: current.id, appId: current.appId, offerId: current.offerId,
+      hasPushToken: Boolean(current.pushToken), hasAppKey: true, hasEncodingAesKey: Boolean(current.encryptedEncodingAesKey), messageMode: current.messageMode,
       dataFormat: current.dataFormat, env: current.env, notifyUrl: current.notifyUrl, enabled: current.enabled,
     } : null;
   }
@@ -248,18 +251,19 @@ export class VirtualPaymentService {
   async saveAdminConfig(body: z.infer<typeof configSchema>) {
     const current = await this.prisma.virtualPaymentConfig.findUnique({ where: { id: 'default' } });
     if (!body.appKey && !current) throw new BadRequestException('首次保存必须填写 AppKey');
+    if (!body.pushToken && !current) throw new BadRequestException('首次保存必须填写推送 Token');
     if (body.messageMode !== 'PLAINTEXT' && !body.encodingAesKey && !current?.encryptedEncodingAesKey) {
       throw new BadRequestException('兼容或安全模式必须配置 EncodingAESKey');
     }
     return this.prisma.virtualPaymentConfig.upsert({
       where: { id: 'default' },
       create: {
-        id: 'default', appId: body.appId, offerId: body.offerId, encryptedAppKey: encryptSecret(body.appKey!), pushToken: body.pushToken,
+        id: 'default', appId: body.appId, offerId: body.offerId, encryptedAppKey: encryptSecret(body.appKey!), pushToken: body.pushToken!,
         encryptedEncodingAesKey: body.encodingAesKey ? encryptSecret(body.encodingAesKey) : null, messageMode: body.messageMode, dataFormat: body.dataFormat,
         env: 0, notifyUrl: body.notifyUrl || null, enabled: body.enabled,
       },
       update: {
-        appId: body.appId, offerId: body.offerId, ...(body.appKey ? { encryptedAppKey: encryptSecret(body.appKey) } : {}), pushToken: body.pushToken,
+        appId: body.appId, offerId: body.offerId, ...(body.appKey ? { encryptedAppKey: encryptSecret(body.appKey) } : {}), ...(body.pushToken ? { pushToken: body.pushToken } : {}),
         ...(body.encodingAesKey ? { encryptedEncodingAesKey: encryptSecret(body.encodingAesKey) } : {}), messageMode: body.messageMode, dataFormat: body.dataFormat,
         env: 0, notifyUrl: body.notifyUrl || null, enabled: body.enabled,
       },
@@ -291,16 +295,19 @@ export class VirtualPaymentService {
   }
 
   private parseNotify(rawBody: string, payment: { pushToken: string; encryptedEncodingAesKey: string | null; messageMode: string; dataFormat: string }): VirtualNotify {
-    if (payment.dataFormat === 'JSON' || rawBody.trimStart().startsWith('{')) {
+    if (payment.dataFormat === 'JSON') {
+      if (!rawBody.trimStart().startsWith('{')) throw new BadRequestException('虚拟支付 JSON 推送格式无效');
       const value = JSON.parse(rawBody) as Record<string, unknown>;
       const info = nested(value, 'WeChatPayInfo');
       const goods = nested(value, 'GoodsInfo');
       return { event: pick(value, 'Event'), openid: pick(value, 'OpenId'), outTradeNo: pick(value, 'OutTradeNo'), wxOrderId: pick(info, 'MchOrderNo') || pick(value, 'MchOrderNo'), productId: pick(goods, 'ProductId'), quantity: Number(pick(goods, 'Quantity') || 0) || undefined, raw: value };
     }
+    if (rawBody.trimStart().startsWith('{')) throw new BadRequestException('当前配置只接受 XML 推送');
     const parsed = unwrapXml(this.parser.parse(rawBody));
     const timestamp = pick(parsed, 'TimeStamp') || pick(parsed, 'timestamp');
     const nonce = pick(parsed, 'Nonce') || pick(parsed, 'nonce');
-    const msgSignature = pick(parsed, 'MsgSignature') || pick(parsed, 'Signature') || pick(parsed, 'signature');
+    const msgSignature = pick(parsed, 'MsgSignature') || pick(parsed, 'msg_signature');
+    const signature = pick(parsed, 'Signature') || pick(parsed, 'signature');
     const encrypted = pick(parsed, 'Encrypt');
     let inner = parsed;
     if (encrypted) {
@@ -308,7 +315,9 @@ export class VirtualPaymentService {
       if (!sameText(msgSignature, sha1([payment.pushToken, timestamp, nonce, encrypted].sort().join('')))) throw new BadRequestException('虚拟支付推送签名无效');
       const decrypted = this.decryptMessage(encrypted, decryptSecret(payment.encryptedEncodingAesKey));
       inner = unwrapXml(this.parser.parse(decrypted));
-    } else if (msgSignature && timestamp && nonce && !sameText(msgSignature, sha1([payment.pushToken, timestamp, nonce, rawBody].sort().join('')))) {
+    } else if (timestamp && nonce && signature && !sameText(signature, sha1([payment.pushToken, timestamp, nonce].sort().join('')))) {
+      throw new BadRequestException('虚拟支付推送签名无效');
+    } else if (timestamp && nonce && msgSignature && !sameText(msgSignature, sha1([payment.pushToken, timestamp, nonce].sort().join('')))) {
       throw new BadRequestException('虚拟支付推送签名无效');
     }
     const info = nested(inner, 'WeChatPayInfo');
@@ -329,6 +338,9 @@ export class VirtualPaymentService {
     const order = await this.prisma.virtualPaymentOrder.findUnique({ where: { outTradeNo: notify.outTradeNo! } });
     if (!order) throw new NotFoundException('虚拟支付订单不存在');
     if (notify.productId && notify.productId !== order.productId) throw new BadRequestException('虚拟支付商品不匹配');
+    if (notify.openid && notify.openid !== order.openid) throw new BadRequestException('虚拟支付用户不匹配');
+    if (notify.quantity !== undefined && notify.quantity !== order.quantity) throw new BadRequestException('虚拟支付商品数量不匹配');
+    if (!notify.wxOrderId) throw new BadRequestException('虚拟支付推送缺少平台订单号');
     await this.deliver(order.id, notify);
   }
 

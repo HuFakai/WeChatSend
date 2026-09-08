@@ -43,6 +43,23 @@ function isSuccessCode(value: unknown) {
   return String(value || '') === '10000';
 }
 
+function field(record: Record<string, unknown>, ...names: string[]) {
+  for (const name of names) {
+    const value = record[name];
+    if (value !== undefined && value !== null && value !== '') return String(value);
+  }
+  return undefined;
+}
+
+function amountFen(value: unknown) {
+  const text = String(value ?? '').trim();
+  const match = /^(?:0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) return undefined;
+  const whole = Number(text.split('.')[0]);
+  const fraction = Number((match[1] || '').padEnd(2, '0'));
+  return whole * 100 + fraction;
+}
+
 @Injectable()
 export class AlipayService {
   constructor(private readonly prisma: PrismaService) {}
@@ -108,7 +125,8 @@ export class AlipayService {
     const payload = responseBody(result as AlipayResponse, 'alipay.trade.query');
     const tradeStatus = String(payload.tradeStatus || payload.trade_status || '');
     if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
-      await this.markPaid(order.id, { tradeNo: payload.tradeNo || payload.trade_no, raw: result });
+      this.assertPaymentDetails(order, payload, false);
+      await this.markPaid(order.id, { tradeNo: payload.tradeNo || payload.trade_no, raw: result, fromNotification: false });
     } else if (tradeStatus === 'TRADE_CLOSED') {
       await this.prisma.alipayOrder.update({ where: { id: order.id }, data: { status: AlipayOrderStatus.CLOSED, failureReason: '支付宝订单已关闭', notifyRaw: result as Prisma.InputJsonValue } });
     }
@@ -126,7 +144,8 @@ export class AlipayService {
     if (!order) return 'fail';
     const tradeStatus = body.trade_status;
     if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
-      await this.markPaid(order.id, { tradeNo: body.trade_no, raw: body });
+      this.assertPaymentDetails(order, body, true);
+      await this.markPaid(order.id, { tradeNo: body.trade_no, raw: body, fromNotification: true });
     } else if (tradeStatus === 'TRADE_CLOSED') {
       await this.prisma.alipayOrder.updateMany({ where: { id: order.id, status: AlipayOrderStatus.PENDING }, data: { status: AlipayOrderStatus.CLOSED, notifyAt: new Date(), notifyRaw: body as Prisma.InputJsonValue } });
     }
@@ -158,7 +177,22 @@ export class AlipayService {
     }
   }
 
-  private async markPaid(id: string, detail: { tradeNo?: string; raw: unknown }) {
+  private assertPaymentDetails(order: { outTradeNo: string; amountFen: number }, details: Record<string, unknown>, strict: boolean) {
+    const cfg = config();
+    const outTradeNo = field(details, 'outTradeNo', 'out_trade_no');
+    const appId = field(details, 'appId', 'app_id');
+    const sellerId = field(details, 'sellerId', 'seller_id');
+    const totalAmount = field(details, 'totalAmount', 'total_amount');
+    if (outTradeNo && outTradeNo !== order.outTradeNo) throw new BadRequestException('支付宝订单号不匹配');
+    if (strict && appId !== cfg.ALIPAY_APP_ID) throw new BadRequestException('支付宝应用不匹配');
+    if (appId && appId !== cfg.ALIPAY_APP_ID) throw new BadRequestException('支付宝应用不匹配');
+    if (cfg.ALIPAY_SELLER_ID && (strict ? sellerId !== cfg.ALIPAY_SELLER_ID : Boolean(sellerId && sellerId !== cfg.ALIPAY_SELLER_ID))) {
+      throw new BadRequestException('支付宝收款账号不匹配');
+    }
+    if (amountFen(totalAmount) !== order.amountFen) throw new BadRequestException('支付宝订单金额不匹配');
+  }
+
+  private async markPaid(id: string, detail: { tradeNo?: string; raw: unknown; fromNotification: boolean }) {
     await this.prisma.$transaction(async (tx) => {
       const order = await tx.alipayOrder.findUnique({ where: { id }, include: { plan: true } });
       if (!order || order.status === AlipayOrderStatus.PAID) return;
@@ -173,7 +207,13 @@ export class AlipayService {
         },
         update: {},
       });
-      await tx.alipayOrder.update({ where: { id }, data: { status: AlipayOrderStatus.PAID, tradeNo: detail.tradeNo || order.tradeNo, paidAt: order.paidAt || now, notifyAt: now, notifyRaw: detail.raw as Prisma.InputJsonValue } });
+      await tx.alipayOrder.update({ where: { id }, data: {
+        status: AlipayOrderStatus.PAID,
+        tradeNo: detail.tradeNo || order.tradeNo,
+        paidAt: order.paidAt || now,
+        ...(detail.fromNotification ? { notifyAt: now } : {}),
+        notifyRaw: detail.raw as Prisma.InputJsonValue,
+      } });
     });
   }
 
