@@ -66,6 +66,22 @@ function signHmac(key: string, value: string) {
   return createHmac('sha256', key).update(value, 'utf8').digest('hex');
 }
 
+function canDecryptSecret(value: string | null | undefined) {
+  if (!value) return false;
+  try { return decryptSecret(value).length > 0; }
+  catch { return false; }
+}
+
+function requiredSecret(value: string, label: string) {
+  try {
+    const decrypted = decryptSecret(value);
+    if (decrypted) return decrypted;
+  } catch {
+    // Convert encryption-key drift and malformed ciphertext into an actionable client error.
+  }
+  throw new BadRequestException(`虚拟支付${label}无法解密，请管理员重新填写并保存`);
+}
+
 function sha1(value: string) {
   return createHash('sha1').update(value, 'utf8').digest('hex');
 }
@@ -169,7 +185,7 @@ export class VirtualPaymentService {
       outTradeNo: order.outTradeNo,
       attach: order.attach,
     });
-    const appKey = decryptSecret(payment.encryptedAppKey);
+    const appKey = requiredSecret(payment.encryptedAppKey, ' AppKey');
     const sessionKey = decryptSecret(request.user.miniSessionKeyEncrypted);
     return {
       id: order.id,
@@ -211,7 +227,7 @@ export class VirtualPaymentService {
     const payment = await this.paymentConfig();
     const accessToken = await this.wechat.token();
     const body = JSON.stringify({ openid: order.openid, env: 0, order_id: order.outTradeNo });
-    const paySig = signHmac(decryptSecret(payment.encryptedAppKey), `/xpay/query_order&${body}`);
+    const paySig = signHmac(requiredSecret(payment.encryptedAppKey, ' AppKey'), `/xpay/query_order&${body}`);
     const url = new URL('https://api.weixin.qq.com/xpay/query_order');
     url.searchParams.set('access_token', accessToken);
     url.searchParams.set('pay_sig', paySig);
@@ -246,14 +262,14 @@ export class VirtualPaymentService {
       ? sha1([token, timestamp, nonce, echostr].sort().join(''))
       : sha1([token, timestamp, nonce].sort().join(''));
     if (!sameText(query.signature || query.msg_signature, expected)) throw new BadRequestException('虚拟支付推送签名无效');
-    return query.msg_signature && payment.encryptedEncodingAesKey ? decryptWechatPush(echostr, decryptSecret(payment.encryptedEncodingAesKey), payment.appId) : echostr;
+    return query.msg_signature && payment.encryptedEncodingAesKey ? decryptWechatPush(echostr, requiredSecret(payment.encryptedEncodingAesKey, ' EncodingAESKey'), payment.appId) : echostr;
   }
 
   async notify(request: Request, response: Response) {
     const payment = await this.paymentConfig();
     const rawBody = (request as Request & { rawBody?: Buffer }).rawBody?.toString('utf8') ?? '';
     if (!rawBody) throw new BadRequestException('虚拟支付推送内容为空');
-    const inner = parseWechatPush(rawBody, request.query as Record<string,string>, { token: payment.pushToken, appId:payment.appId, mode:payment.messageMode, aesKey:payment.encryptedEncodingAesKey?decryptSecret(payment.encryptedEncodingAesKey):undefined });
+    const inner = parseWechatPush(rawBody, request.query as Record<string,string>, { token: payment.pushToken, appId:payment.appId, mode:payment.messageMode, aesKey:payment.encryptedEncodingAesKey?requiredSecret(payment.encryptedEncodingAesKey, ' EncodingAESKey'):undefined });
     const info=nested(inner,'WeChatPayInfo'), goods=nested(inner,'GoodsInfo');
     const notify:VirtualNotify={event:pick(inner,'Event'),openid:pick(inner,'OpenId'),outTradeNo:pick(inner,'OutTradeNo'),wxOrderId:pick(info,'MchOrderNo')||pick(inner,'MchOrderNo'),productId:pick(goods,'ProductId'),quantity:Number(pick(goods,'Quantity'))||undefined,raw:inner};
     if (notify.event === 'xpay_refund_notify' && notify.outTradeNo) {
@@ -276,7 +292,8 @@ export class VirtualPaymentService {
     const current = await this.prisma.virtualPaymentConfig.findUnique({ where: { id: 'default' } });
     return current ? {
       id: current.id, appId: current.appId, offerId: current.offerId,
-      hasPushToken: Boolean(current.pushToken), hasAppKey: true, hasEncodingAesKey: Boolean(current.encryptedEncodingAesKey), messageMode: current.messageMode,
+      hasPushToken: Boolean(current.pushToken), hasAppKey: Boolean(current.encryptedAppKey), appKeyUsable: canDecryptSecret(current.encryptedAppKey),
+      hasEncodingAesKey: Boolean(current.encryptedEncodingAesKey), encodingAesKeyUsable: canDecryptSecret(current.encryptedEncodingAesKey), messageMode: current.messageMode,
       dataFormat: current.dataFormat, env: current.env, notifyUrl: current.notifyUrl, enabled: current.enabled,
     } : null;
   }
@@ -290,16 +307,24 @@ export class VirtualPaymentService {
     if (body.messageMode !== 'PLAINTEXT' && !body.encodingAesKey && !current?.encryptedEncodingAesKey) {
       throw new BadRequestException('兼容或安全模式必须配置 EncodingAESKey');
     }
+    const encryptedAppKey = body.appKey ? encryptSecret(body.appKey) : current?.encryptedAppKey;
+    const pushToken = body.pushToken || current?.pushToken;
+    const encryptedEncodingAesKey = body.encodingAesKey
+      ? encryptSecret(body.encodingAesKey)
+      : body.encodingAesKey === null
+        ? null
+        : current?.encryptedEncodingAesKey ?? null;
+    if (!encryptedAppKey || !pushToken) throw new BadRequestException('AppKey 和推送 Token 配置不完整');
     return this.prisma.virtualPaymentConfig.upsert({
       where: { id: 'default' },
       create: {
-        id: 'default', appId: body.appId, offerId: body.offerId, encryptedAppKey: encryptSecret(body.appKey!), pushToken: body.pushToken!,
-        encryptedEncodingAesKey: body.encodingAesKey ? encryptSecret(body.encodingAesKey) : null, messageMode: body.messageMode, dataFormat: body.dataFormat,
+        id: 'default', appId: body.appId, offerId: body.offerId, encryptedAppKey, pushToken,
+        encryptedEncodingAesKey, messageMode: body.messageMode, dataFormat: body.dataFormat,
         env: 0, notifyUrl: body.notifyUrl || null, enabled: body.enabled,
       },
       update: {
-        appId: body.appId, offerId: body.offerId, ...(body.appKey ? { encryptedAppKey: encryptSecret(body.appKey) } : {}), ...(body.pushToken ? { pushToken: body.pushToken } : {}),
-        ...(body.encodingAesKey ? { encryptedEncodingAesKey: encryptSecret(body.encodingAesKey) } : {}), messageMode: body.messageMode, dataFormat: body.dataFormat,
+        appId: body.appId, offerId: body.offerId, encryptedAppKey, pushToken,
+        encryptedEncodingAesKey, messageMode: body.messageMode, dataFormat: body.dataFormat,
         env: 0, notifyUrl: body.notifyUrl || null, enabled: body.enabled,
       },
     }).then(() => this.adminConfig());

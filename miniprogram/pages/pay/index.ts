@@ -2,6 +2,11 @@ import {post,request} from '../../services/api';
 import {errorText,wxSignIn} from '../../services/identity';
 type Plan={id:string;name:string;description:string;priceFen:number;membershipDays:number;messageQuota:number};
 let stopped=false;
+function virtualPaymentError(error:unknown){
+ const message=errorText(error);
+ if(/数据不存在|data\s*(?:does\s*not|not)\s*exist/i.test(message))return `${message}；微信未找到对应支付数据，请核对 OfferID、现网 AppKey，以及套餐 ProductID 和价格是否与微信后台已发布道具完全一致。`;
+ return message;
+}
 Page({
  data:{scene:'',order:null as any,plans:[] as Plan[],virtualOrder:null as any,loading:false,error:'',paid:false,virtualPaid:false},
  async onLoad(options:{scene?:string;orderId?:string}){
@@ -56,7 +61,7 @@ Page({
    await new Promise<void>((resolve,reject)=>invoke.call(wx,{...created.payData,success:()=>resolve(),fail:reject}));
    if(!await this.waitForVirtual(id)&&!stopped)this.setData({error:'服务端尚未确认发货，请从订单记录查询，不要重复付款。'});
   }catch(e){
-   let message=errorText(e);
+   let message=virtualPaymentError(e);
    if(id){try{const o=await post<any>('/virtual-payment/orders/'+id+'/query');if(!stopped)this.setData({virtualOrder:o,virtualPaid:o.status==='DELIVERED'});if(o.status==='DELIVERED')message='';else message+='；请查询订单确认最终状态。';}catch{message+='；查单暂不可用，请稍后查看订单。';}}
    if(!stopped)this.setData({error:message});
   }finally{if(!stopped)this.setData({loading:false});}

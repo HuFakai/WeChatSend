@@ -9,6 +9,7 @@ function key() {
 }
 
 export function encryptSecret(value: string) {
+  if (typeof value !== 'string' || value.length === 0) throw new BadRequestException('待加密密钥不能为空');
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key(), iv);
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
