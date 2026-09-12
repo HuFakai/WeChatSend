@@ -9,6 +9,12 @@ describe('展示格式', () => {
     expect(formatDateTime('invalid')).toBe('—');
     expect(formatShortDateTime('invalid')).toBe('—');
   });
+
+  it('所有时间格式均显示到秒', () => {
+    const value = new Date(2026, 8, 12, 19, 4, 5);
+    expect(formatDateTime(value)).toMatch(/19:04:05$/);
+    expect(formatShortDateTime(value)).toMatch(/19:04:05$/);
+  });
 });
 
 describe('路由标题', () => {
