@@ -23,7 +23,7 @@ export function TaskNewPage() {
     <div className="mt-6">
       {builder.step === 1 ? <ContentStep title={builder.title} content={builder.content} templateId={builder.templateId} templates={builder.templates} variables={builder.variables} onTitle={builder.setTitle} onContent={builder.setContent} onTemplate={builder.chooseTemplate} onVariable={builder.insertVariable} /> : null}
       {builder.step === 2 ? <AudienceStep selections={builder.selections} onFriend={builder.toggleFriend} onSegment={builder.toggleSegment} /> : null}
-      {builder.step === 3 ? <ScheduleStep timing={builder.timing} scheduledAt={builder.scheduledAt} selections={builder.selectedAccounts} onTiming={builder.setTiming} onScheduledAt={builder.setScheduledAt} onDelay={builder.updateDelay} /> : null}
+      {builder.step === 3 ? <ScheduleStep timing={builder.timing} scheduledAt={builder.scheduledAt} selections={builder.selectedAccounts} availability={builder.scheduleAvailability} checking={builder.checkingSchedule} onTiming={builder.setTiming} onScheduledAt={builder.setScheduledAt} onDelay={builder.updateDelay} /> : null}
       {builder.step === 4 ? <ReviewStep preview={builder.preview} total={builder.total} accountCount={builder.selectedAccounts.length} /> : null}
     </div>
     <footer className="sticky bottom-4 mt-6 flex items-center justify-between rounded-2xl border border-neutral-300 bg-white/95 p-3 shadow-[0_12px_35px_rgba(0,0,0,.08)] backdrop-blur-xl">

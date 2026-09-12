@@ -1,12 +1,13 @@
-import { Check, Clock, Send } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Send } from 'lucide-react';
 import { useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingState } from '@/components/states';
 import { cn } from '@/lib/utils';
+import { formatDateTime } from '@/lib/format';
 import type { CustomVariable, MessageTemplate, Segment } from '@/types';
-import { builtInVariables, localDateTimeValue, type Preview, type Selection, type Timing } from './types';
+import { builtInVariables, localDateTimeValue, type Preview, type ScheduleAvailability, type Selection, type Timing } from './types';
 
 export function BuilderProgress({ step, onStep }: { step: number; onStep: (step: number) => void }) {
   return <ol className="grid grid-cols-4 overflow-hidden rounded-xl border border-neutral-300 bg-white">{['写文案', '选好友', '定时间', '确认'].map((label, index) => {
@@ -47,9 +48,36 @@ function SegmentButton({ prefix, item, dashed, onClick }: { prefix: string; item
   return <button type="button" onClick={onClick} className={cn('rounded-full border border-neutral-400 px-3 py-1.5 text-xs hover:border-neutral-950 hover:bg-neutral-100', dashed && 'border-dashed')}>{prefix}{prefix === '#' ? '' : ' · '}{item.name} · {item.friendIds.length}</button>;
 }
 
-export function ScheduleStep({ timing, scheduledAt, selections, onTiming, onScheduledAt, onDelay }: { timing: Timing; scheduledAt: string; selections: Selection[]; onTiming: (value: Timing) => void; onScheduledAt: (value: string) => void; onDelay: (accountId: string, field: 'minDelay' | 'maxDelay', value: number) => void }) {
+export function ScheduleStep({ timing, scheduledAt, selections, availability, checking, onTiming, onScheduledAt, onDelay }: { timing: Timing; scheduledAt: string; selections: Selection[]; availability?: ScheduleAvailability; checking: boolean; onTiming: (value: Timing) => void; onScheduledAt: (value: string) => void; onDelay: (accountId: string, field: 'minDelay' | 'maxDelay', value: number) => void }) {
+  const futureOccupied = availability?.occupied.filter((window) => new Date(window.endAt) > new Date()) ?? [];
   return <div className="grid gap-5 lg:grid-cols-2">
-    <Card><CardHeader><CardTitle>开始时间</CardTitle></CardHeader><CardContent className="space-y-3"><Choice active={timing === 'now'} icon={Send} title="立即发送" detail="提交后进入服务端队列" onClick={() => onTiming('now')} /><Choice active={timing === 'later'} icon={Clock} title="单次定时" detail="到达时间后开始排队" onClick={() => onTiming('later')} />{timing === 'later' ? <label className="block pt-2"><span className="field-label">计划开始时间</span><Input type="datetime-local" step="1" min={localDateTimeValue()} value={scheduledAt} onChange={(event) => onScheduledAt(event.target.value)} /></label> : null}</CardContent></Card>
+    <Card>
+      <CardHeader><CardTitle>开始时间</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <Choice active={timing === 'now'} icon={Send} title="立即发送" detail="提交后进入服务端队列" onClick={() => onTiming('now')} />
+        <Choice active={timing === 'later'} icon={Clock} title="单次定时" detail="到达时间后开始排队" onClick={() => onTiming('later')} />
+        {timing === 'later' ? <>
+          <label className="block pt-2">
+            <span className="field-label">计划开始时间</span>
+            <Input type="datetime-local" step="1" min={localDateTimeValue()} value={scheduledAt} onChange={(event) => onScheduledAt(event.target.value)} />
+          </label>
+          {checking ? <p className="text-xs text-neutral-500">正在检查账号时间段…</p> : availability ? <div className={cn('rounded-xl border p-3 text-xs leading-5', availability.available ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700')}>
+            <p className="flex items-center gap-2 font-medium">
+              {availability.available ? <Check className="size-4" /> : <AlertTriangle className="size-4" />}
+              {availability.available ? '所选时间段可用' : '所选时间段存在冲突'}
+            </p>
+            {availability.planned.map((window) => <p key={window.accountId} className="mt-1">{window.accountName}：{formatDateTime(window.startAt)} 至 {formatDateTime(window.endAt)}</p>)}
+          </div> : null}
+          {futureOccupied.length ? <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+            <p className="text-xs font-semibold text-neutral-700">已占用时间段</p>
+            {futureOccupied.map((window) => <p key={`${window.taskId}-${window.accountId}`} className="mt-2 text-xs leading-5 text-neutral-500">
+              <b className="font-medium text-neutral-800">{window.accountName}</b> · {window.taskTitle}<br />
+              {formatDateTime(window.startAt)} 至 {formatDateTime(window.endAt)}
+            </p>)}
+          </div> : null}
+        </> : null}
+      </CardContent>
+    </Card>
     <Card><CardHeader><CardTitle>发送间隔</CardTitle></CardHeader><CardContent className="space-y-5">{selections.map((selection) => <div key={selection.account.id}><p className="mb-2 text-sm font-medium">{selection.account.name}<span className="ml-2 text-xs font-normal text-neutral-400">{selection.selected.size} 人</span></p><div className="grid grid-cols-2 gap-3"><label><span className="field-label">最小秒数</span><Input type="number" min="10" value={selection.minDelay} onChange={(event) => onDelay(selection.account.id, 'minDelay', Number(event.target.value))} /></label><label><span className="field-label">最大秒数</span><Input type="number" min="10" value={selection.maxDelay} onChange={(event) => onDelay(selection.account.id, 'maxDelay', Number(event.target.value))} /></label></div></div>)}<p className="rounded-lg bg-neutral-100 p-3 text-xs leading-5 text-neutral-500">同一个发送账号严格串行，最小间隔为 10 秒；不同账号可以并行。</p></CardContent></Card>
   </div>;
 }

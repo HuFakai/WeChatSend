@@ -7,13 +7,13 @@ export const DialogRoot = DialogPrimitive.Root;
 export const DialogPortal = DialogPrimitive.Portal;
 
 export function DialogOverlay({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return <DialogPrimitive.Overlay className={cn('dialog-overlay fixed inset-0 z-50', className)} {...props} />;
+  return <DialogPrimitive.Overlay className={cn('fixed inset-0 z-50 bg-black/50', className)} {...props} />;
 }
 
 export function DialogContent({ className, children, ...props }: React.ComponentProps<typeof DialogPrimitive.Content>) {
   return <DialogPortal>
     <DialogOverlay />
-    <DialogPrimitive.Content className={cn('dialog-panel fixed bottom-0 left-1/2 z-50 flex max-h-[94vh] w-full max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-t-2xl border border-neutral-300 bg-white shadow-[0_24px_80px_rgba(23,23,22,.18)] outline-none sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl', className)} {...props}>
+    <DialogPrimitive.Content className={cn('fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg outline-none', className)} {...props}>
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950" aria-label="关闭">
         <X />

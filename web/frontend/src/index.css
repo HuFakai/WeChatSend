@@ -31,15 +31,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .page-enter { animation: page-enter .28s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.dialog-overlay { background: rgba(246,246,243,.78); backdrop-filter: blur(2px) saturate(.8); animation: dialog-overlay-in .16s ease-out both; }
-.dialog-panel, .dialog-panel-centered { animation: dialog-content-in .2s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes dialog-overlay-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dialog-content-in { from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(.985); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
-@media (max-width: 639px) {
-  .dialog-panel { animation-name: dialog-sheet-in; }
-  @keyframes dialog-sheet-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
-}
-@media (prefers-reduced-motion: reduce) { .page-enter, .dialog-overlay, .dialog-panel, .dialog-panel-centered { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .page-enter { animation: none; } }
 
 .field-label { display: block; margin-bottom: .45rem; font-size: .75rem; font-weight: 650; letter-spacing: .02em; color: #404040; }
 .field-help { margin-top: .4rem; font-size: .75rem; line-height: 1.5; color: #737373; }

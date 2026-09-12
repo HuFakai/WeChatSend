@@ -169,6 +169,8 @@ PostgreSQL: OK 和 Redis: OK，才能继续迁移和启动。
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env up -d --remove-orphans
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env ps
 
+本版本新增任务时间窗迁移 `20260912210000_task_schedule_windows`。迁移会根据历史任务的计划时间、账号最大间隔和好友数量回填预约开始/结束时间；更新时必须保留上面 `build → migrate → up` 的顺序，不能跳过 `migrate`。
+
 查看日志：
 
     docker compose -f web/deploy/docker-compose.prod.yml --env-file .env logs -f --tail=200 api worker web

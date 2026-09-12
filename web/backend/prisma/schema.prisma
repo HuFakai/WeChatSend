@@ -638,18 +638,21 @@ model Task {
 }
 
 model TaskAccountSetting {
-  id             String        @id @default(uuid()) @db.Uuid
-  taskId         String        @map("task_id") @db.Uuid
-  accountId      String        @map("account_id") @db.Uuid
-  recipientEmail String        @map("recipient_email")
-  subject        String
-  configVersion  Int           @map("config_version")
-  minDelay       Int           @map("min_delay")
-  maxDelay       Int           @map("max_delay")
-  task           Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  account        WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  id              String        @id @default(uuid()) @db.Uuid
+  taskId          String        @map("task_id") @db.Uuid
+  accountId       String        @map("account_id") @db.Uuid
+  recipientEmail  String        @map("recipient_email")
+  subject         String
+  configVersion   Int           @map("config_version")
+  minDelay        Int           @map("min_delay")
+  maxDelay        Int           @map("max_delay")
+  reservedStartAt DateTime      @map("reserved_start_at")
+  reservedEndAt   DateTime      @map("reserved_end_at")
+  task            Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  account         WechatAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@unique([taskId, accountId])
+  @@index([accountId, reservedStartAt, reservedEndAt], map: "task_account_schedule_window_idx")
   @@map("task_account_settings")
 }
 

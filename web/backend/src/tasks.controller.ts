@@ -5,6 +5,7 @@ import {
   createTaskSchema,
   previewTaskSchema,
   resendSchema,
+  scheduleCheckSchema,
   taskListQuerySchema,
   TasksService,
 } from './tasks';
@@ -44,6 +45,14 @@ export class TasksController {
     @Body(new ZodPipe(previewTaskSchema)) body: z.infer<typeof previewTaskSchema>,
   ) {
     return this.tasks.preview(request.user.id, body);
+  }
+
+  @Post('schedule-check')
+  scheduleAvailability(
+    @Req() request: AuthRequest,
+    @Body(new ZodPipe(scheduleCheckSchema)) body: z.infer<typeof scheduleCheckSchema>,
+  ) {
+    return this.tasks.scheduleAvailability(request.user.id, body);
   }
 
   @Post()

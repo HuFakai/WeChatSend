@@ -8,11 +8,11 @@ export const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
 export const AlertDialogPortal = AlertDialogPrimitive.Portal;
 
 export function AlertDialogOverlay({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
-  return <AlertDialogPrimitive.Overlay className={cn('dialog-overlay fixed inset-0 z-50', className)} {...props} />;
+  return <AlertDialogPrimitive.Overlay className={cn('fixed inset-0 z-50 bg-black/50', className)} {...props} />;
 }
 
 export function AlertDialogContent({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
-  return <AlertDialogPortal><AlertDialogOverlay /><AlertDialogPrimitive.Content className={cn('dialog-panel-centered fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-5 rounded-2xl border border-neutral-300 bg-white p-6 shadow-[0_24px_80px_rgba(23,23,22,.18)] outline-none', className)} {...props} /></AlertDialogPortal>;
+  return <AlertDialogPortal><AlertDialogOverlay /><AlertDialogPrimitive.Content className={cn('fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-5 rounded-lg border border-neutral-200 bg-white p-6 shadow-lg outline-none', className)} {...props} /></AlertDialogPortal>;
 }
 
 export function AlertDialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

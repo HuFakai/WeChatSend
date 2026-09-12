@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, patch, post } from '@/lib/api';
 import type { Account, CustomVariable, Friend, MessageTemplate, Segment, Task, TaskDraft } from '@/types';
-import { localDateTimeValue, type Preview, type Selection, type TaskPayload, type Timing } from './types';
+import { localDateTimeValue, type Preview, type ScheduleAvailability, type Selection, type TaskPayload, type Timing } from './types';
 
 export function useTaskBuilder({ draftId, templateParam, contentParam }: { draftId: string | null; templateParam: string | null; contentParam: string | null }) {
   const navigate = useNavigate();
@@ -18,6 +18,8 @@ export function useTaskBuilder({ draftId, templateParam, contentParam }: { draft
   const [scheduledAt, setScheduledAt] = useState(localDateTimeValue());
   const [renderSeed, setRenderSeed] = useState<string>(() => crypto.randomUUID());
   const [preview, setPreview] = useState<Preview>();
+  const [scheduleAvailability, setScheduleAvailability] = useState<ScheduleAvailability>();
+  const [checkingSchedule, setCheckingSchedule] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(draftId);
@@ -95,13 +97,45 @@ export function useTaskBuilder({ draftId, templateParam, contentParam }: { draft
     selections: selectedAccounts.map((selection) => ({ accountId: selection.account.id, friendIds: [...selection.selected], groupIds: [], tagIds: [], minDelay: selection.minDelay, maxDelay: selection.maxDelay })),
   }), [content, renderSeed, scheduledAt, selectedAccounts, templateId, timing, title]);
 
+  const scheduleBody = useCallback(() => ({
+    scheduledAt: new Date(scheduledAt).toISOString(),
+    selections: selectedAccounts.map((selection) => ({
+      accountId: selection.account.id,
+      recipientCount: selection.selected.size,
+      maxDelay: selection.maxDelay,
+    })),
+  }), [scheduledAt, selectedAccounts]);
+
+  useEffect(() => {
+    if (timing !== 'later' || !scheduledAt || new Date(scheduledAt) <= new Date() || !selectedAccounts.length
+      || selectedAccounts.some((item) => item.maxDelay < 10 || item.minDelay > item.maxDelay)) {
+      setScheduleAvailability(undefined);
+      setCheckingSchedule(false);
+      return;
+    }
+    setScheduleAvailability(undefined);
+    setCheckingSchedule(true);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void post<ScheduleAvailability>('/tasks/schedule-check', scheduleBody())
+        .then((result) => { if (active) setScheduleAvailability(result); })
+        .catch((reason) => { if (active) setError((reason as Error).message); })
+        .finally(() => { if (active) setCheckingSchedule(false); });
+    }, 300);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [scheduleBody, scheduledAt, selectedAccounts, timing]);
+
   const validate = useCallback((targetStep = 4) => {
     if (targetStep >= 1 && (!title.trim() || !content.trim())) return '请填写任务名称和消息内容';
     if (targetStep >= 2 && !total) return '请至少选择一位好友';
     if (targetStep >= 3 && selectedAccounts.some((item) => item.minDelay < 10 || item.maxDelay < 10 || item.minDelay > item.maxDelay)) return '发送间隔至少 10 秒，且最小值不能大于最大值';
     if (targetStep >= 3 && timing === 'later' && (!scheduledAt || new Date(scheduledAt) <= new Date())) return '定时时间必须晚于当前时间';
+    if (targetStep >= 3 && timing === 'later' && scheduleAvailability && !scheduleAvailability.available) {
+      const conflict = scheduleAvailability.conflicts[0];
+      return `所选时间与“${conflict.occupied.taskTitle}”的账号占用时间段冲突，请调整计划开始时间`;
+    }
     return '';
-  }, [content, scheduledAt, selectedAccounts, timing, title, total]);
+  }, [content, scheduleAvailability, scheduledAt, selectedAccounts, timing, title, total]);
 
   const next = async () => {
     const issue = validate(step);
@@ -109,7 +143,19 @@ export function useTaskBuilder({ draftId, templateParam, contentParam }: { draft
     const nextStep = Math.min(4, step + 1);
     setError(''); setStep(nextStep);
     if (nextStep === 4) {
-      try { setBusy(true); setPreview(await post<Preview>('/tasks/preview', taskBody())); }
+      try {
+        setBusy(true);
+        if (timing === 'later') {
+          const availability = await post<ScheduleAvailability>('/tasks/schedule-check', scheduleBody());
+          setScheduleAvailability(availability);
+          if (!availability.available) {
+            const conflict = availability.conflicts[0];
+            setError(`所选时间与“${conflict.occupied.taskTitle}”的账号占用时间段冲突，请调整计划开始时间`);
+            return;
+          }
+        }
+        setPreview(await post<Preview>('/tasks/preview', taskBody()));
+      }
       catch (reason) { setError((reason as Error).message); }
       finally { setBusy(false); }
     }
@@ -150,5 +196,5 @@ export function useTaskBuilder({ draftId, templateParam, contentParam }: { draft
     setPreview(undefined);
   };
 
-  return { step, setStep, accounts, selections, templates, variables, templateId, title, setTitle, content, setContent, timing, setTiming, scheduledAt, setScheduledAt, preview, error, setError, busy, savedDraftId, total, selectedAccounts, toggleFriend, toggleSegment, updateDelay, next, saveDraft, submit, chooseTemplate, insertVariable };
+  return { step, setStep, accounts, selections, templates, variables, templateId, title, setTitle, content, setContent, timing, setTiming, scheduledAt, setScheduledAt, preview, scheduleAvailability, checkingSchedule, error, setError, busy, savedDraftId, total, selectedAccounts, toggleFriend, toggleSegment, updateDelay, next, saveDraft, submit, chooseTemplate, insertVariable };
 }

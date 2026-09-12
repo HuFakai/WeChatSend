@@ -10,6 +10,7 @@ import { feedbackDisplayState, FrozenVariable, referencedVariables, renderConten
 import { assertSafeTagValue } from './lib';
 import { PrismaService } from './prisma.service';
 import { ExternalApiService } from './external-api';
+import { createScheduleWindow, findScheduleConflicts, type ScheduleWindow } from './schedule-window';
 
 const selectionSchema = z.object({
   accountId: z.string().uuid(),
@@ -32,6 +33,15 @@ export const createTaskSchema = z.object({
 });
 
 export const previewTaskSchema = createTaskSchema.omit({ idempotencyKey: true });
+
+export const scheduleCheckSchema = z.object({
+  scheduledAt: z.string().datetime(),
+  selections: z.array(z.object({
+    accountId: z.string().uuid(),
+    recipientCount: z.number().int().min(1).max(5000),
+    maxDelay: z.number().int().min(10).max(3600),
+  })).min(1).max(100),
+});
 
 export const resendSchema = z.object({ idempotencyKey: z.string().min(8).max(100) });
 export const taskListQuerySchema = z.object({
@@ -112,6 +122,12 @@ export class TasksService {
   ) {
     const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
     const prepared = await this.prepare(ownerId, body, scheduledAt, body.renderSeed ?? randomUUID());
+    const schedule = await this.checkScheduleAvailability(
+      this.prisma,
+      ownerId,
+      this.plannedScheduleWindows(scheduledAt, prepared.selections, prepared.accountMap),
+      prepared.owner.timezone,
+    );
     return {
       renderSeed: prepared.seed,
       previewFingerprint: this.fingerprint(prepared.seed, prepared.messageRows),
@@ -121,7 +137,32 @@ export class TasksService {
       })),
       variableSnapshot: prepared.variableSnapshot,
       templateSnapshot: prepared.templateSnapshot,
+      schedule,
     };
+  }
+
+  async scheduleAvailability(ownerId: string, body: z.infer<typeof scheduleCheckSchema>) {
+    const scheduledAt = new Date(body.scheduledAt);
+    const accountIds = [...new Set(body.selections.map((selection) => selection.accountId))];
+    const [accounts, owner] = await Promise.all([
+      this.prisma.wechatAccount.findMany({
+        where: { id: { in: accountIds }, ownerId, status: 'ACTIVE' },
+        select: { id: true, name: true },
+      }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: ownerId }, select: { timezone: true } }),
+    ]);
+    if (accounts.length !== accountIds.length) throw new BadRequestException('包含不存在或已删除的发送账号');
+    const accountMap = new Map(accounts.map((account) => [account.id, account]));
+    const planned = body.selections.map((selection) => createScheduleWindow({
+      accountId: selection.accountId,
+      accountName: accountMap.get(selection.accountId)!.name,
+      taskId: null,
+      taskTitle: null,
+      startAt: scheduledAt,
+      recipientCount: selection.recipientCount,
+      maxDelay: selection.maxDelay,
+    }));
+    return this.checkScheduleAvailability(this.prisma, ownerId, planned, owner.timezone, false);
   }
 
   async create(
@@ -151,7 +192,21 @@ export class TasksService {
     const status: TaskStatus = scheduledAt > now ? 'SCHEDULED' : 'RUNNING';
 
     try {
-      await this.prisma.$transaction(async (tx) => {
+      const createdTaskId = await this.prisma.$transaction(async (tx) => {
+        for (const accountId of [...accountMap.keys()].sort()) {
+          await tx.$queryRaw<Array<{ id: string }>>`SELECT id::text AS id FROM wechat_accounts WHERE id=${accountId}::uuid FOR UPDATE`;
+        }
+        const duplicate = await tx.task.findUnique({
+          where: { ownerId_idempotencyKey: { ownerId, idempotencyKey: body.idempotencyKey } },
+          select: { id: true },
+        });
+        if (duplicate) return duplicate.id;
+        await this.checkScheduleAvailability(
+          tx,
+          ownerId,
+          this.plannedScheduleWindows(scheduledAt, selections, accountMap),
+          prepared.owner.timezone,
+        );
         await tx.task.create({
           data: {
             id: taskId, ownerId, title: body.title, content: body.content,
@@ -163,11 +218,22 @@ export class TasksService {
         await tx.taskAccountSetting.createMany({
           data: selections.map((selection) => {
             const account = accountMap.get(selection.accountId)!;
+            const reservation = createScheduleWindow({
+              accountId: account.id,
+              accountName: account.name,
+              taskId,
+              taskTitle: body.title,
+              startAt: scheduledAt,
+              recipientCount: selection.friendIds.length,
+              maxDelay: selection.maxDelay ?? account.maxDelay,
+            });
             return {
               taskId, accountId: account.id, recipientEmail: account.recipientEmail,
               subject: account.subject, configVersion: account.configVersion,
               minDelay: selection.minDelay ?? account.minDelay,
               maxDelay: selection.maxDelay ?? account.maxDelay,
+              reservedStartAt: reservation.startAt,
+              reservedEndAt: reservation.endAt,
             };
           }),
         });
@@ -178,7 +244,9 @@ export class TasksService {
             payload: { messageId: message.id, readyAt: scheduledAt.toISOString() } as Prisma.InputJsonValue,
           })),
         });
+        return taskId;
       });
+      return this.detail(ownerId, createdTaskId);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await this.prisma.task.findUnique({
@@ -188,7 +256,6 @@ export class TasksService {
       }
       throw error;
     }
-    return this.detail(ownerId, taskId);
   }
 
   async copy(ownerId: string, id: string) {
@@ -404,7 +471,83 @@ export class TasksService {
         };
       });
     });
-    return { seed, selections, accounts, accountMap, messageRows, templateSnapshot, variableSnapshot };
+    return { seed, selections, accounts, accountMap, messageRows, templateSnapshot, variableSnapshot, owner };
+  }
+
+  private plannedScheduleWindows(
+    scheduledAt: Date,
+    selections: Array<z.infer<typeof selectionSchema>>,
+    accountMap: Map<string, { id: string; name: string; minDelay: number; maxDelay: number }>,
+  ) {
+    return selections.map((selection) => {
+      const account = accountMap.get(selection.accountId)!;
+      return createScheduleWindow({
+        accountId: account.id,
+        accountName: account.name,
+        taskId: null,
+        taskTitle: null,
+        startAt: scheduledAt,
+        recipientCount: selection.friendIds.length,
+        maxDelay: selection.maxDelay ?? account.maxDelay,
+      });
+    });
+  }
+
+  private async occupiedScheduleWindows(
+    client: Pick<Prisma.TransactionClient, 'taskAccountSetting'>,
+    ownerId: string,
+    planned: ScheduleWindow[],
+  ) {
+    const accountIds = [...new Set(planned.map((window) => window.accountId))];
+    const earliestBoundary = new Date(Math.min(Date.now(), ...planned.map((window) => window.startAt.getTime())));
+    const settings = await client.taskAccountSetting.findMany({
+      where: {
+        accountId: { in: accountIds },
+        reservedEndAt: { gt: earliestBoundary },
+        task: { ownerId, status: { not: TaskStatus.CANCELLED } },
+      },
+      select: {
+        accountId: true,
+        maxDelay: true,
+        reservedStartAt: true,
+        reservedEndAt: true,
+        account: { select: { name: true } },
+        task: { select: { id: true, title: true } },
+      },
+    });
+    return settings.map((setting) => ({
+        accountId: setting.accountId,
+        accountName: setting.account.name,
+        taskId: setting.task.id,
+        taskTitle: setting.task.title,
+        startAt: setting.reservedStartAt,
+        endAt: setting.reservedEndAt,
+        recipientCount: Math.max(1, Math.round((setting.reservedEndAt.getTime() - setting.reservedStartAt.getTime()) / (setting.maxDelay * 1000))),
+        maxDelay: setting.maxDelay,
+      }));
+  }
+
+  private async checkScheduleAvailability(
+    client: Pick<Prisma.TransactionClient, 'taskAccountSetting'>,
+    ownerId: string,
+    planned: ScheduleWindow[],
+    timezone: string,
+    rejectConflict = true,
+  ) {
+    const occupied = await this.occupiedScheduleWindows(client, ownerId, planned);
+    const conflicts = findScheduleConflicts(planned, occupied);
+    if (rejectConflict && conflicts.length) {
+      const conflict = conflicts[0];
+      const format = (value: Date) => new Intl.DateTimeFormat('zh-CN', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).format(value);
+      throw new BadRequestException(
+        `发送账号“${conflict.occupied.accountName}”在 ${format(conflict.occupied.startAt)} 至 ${format(conflict.occupied.endAt)} 已被任务“${conflict.occupied.taskTitle}”占用，当前任务预计执行至 ${format(conflict.planned.endAt)}，请调整开始时间、好友数量或发送间隔`,
+      );
+    }
+    return { available: conflicts.length === 0, planned, occupied, conflicts };
   }
 
   private fingerprint(seed: string, messages: Array<{ accountId: string; friendId: string; recipientOrder: number; content: string }>) {
