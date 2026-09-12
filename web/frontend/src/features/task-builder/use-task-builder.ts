@@ -141,7 +141,14 @@ export function useTaskBuilder({ draftId, templateParam, contentParam }: { draft
     if (item) { setContent(item.content); if (!title) setTitle(item.title); }
     setPreview(undefined);
   };
-  const insertVariable = (name: string) => { setContent((value) => `${value}${value && !value.endsWith(' ') ? ' ' : ''}{{${name}}}`); setPreview(undefined); };
+  const insertVariable = (name: string, start?: number, end?: number) => {
+    setContent((value) => {
+      const from = start ?? value.length;
+      const to = end ?? from;
+      return `${value.slice(0, from)}{{${name}}}${value.slice(to)}`;
+    });
+    setPreview(undefined);
+  };
 
   return { step, setStep, accounts, selections, templates, variables, templateId, title, setTitle, content, setContent, timing, setTiming, scheduledAt, setScheduledAt, preview, error, setError, busy, savedDraftId, total, selectedAccounts, toggleFriend, toggleSegment, updateDelay, next, saveDraft, submit, chooseTemplate, insertVariable };
 }

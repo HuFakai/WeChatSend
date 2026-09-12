@@ -50,12 +50,12 @@ export class AccountsController {
   @Get()
   list(@Req() request: AuthRequest) {
     return this.prisma.wechatAccount.findMany({
-      where: { ownerId: request.user.id },
+      where: { ownerId: request.user.id, status: 'ACTIVE' },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, name: true, recipientEmail: true, subject: true, minDelay: true,
         maxDelay: true, emailVerifiedAt: true, status: true, configVersion: true,
-        _count: { select: { friends: true } },
+        _count: { select: { friends: { where: { status: 'ACTIVE' } } } },
       },
     });
   }
@@ -98,6 +98,33 @@ export class AccountsController {
     return this.update(request, id, body);
   }
 
+  @Post(':id/delete')
+  async remove(@Req() request: AuthRequest, @Param('id') id: string) {
+    await this.owned(request.user.id, id);
+    const processing = await this.prisma.taskMessage.count({
+      where: { accountId: id, status: { in: ['PENDING', 'SENDING', 'RETRY_WAIT'] } },
+    });
+    if (processing) throw new BadRequestException('该账号仍有待发送任务，请先取消或等待任务结束后再删除');
+    await this.prisma.$transaction([
+      this.prisma.friend.updateMany({
+        where: { accountId: id, status: 'ACTIVE' },
+        data: { status: 'DISABLED' },
+      }),
+      this.prisma.wechatAccount.update({
+        where: { id },
+        data: {
+          status: 'DISABLED',
+          recipientEmail: `deleted-${id}@invalid.local`,
+          emailVerifiedAt: null,
+          verificationHash: null,
+          verificationUntil: null,
+          configVersion: { increment: 1 },
+        },
+      }),
+    ]);
+    return { ok: true };
+  }
+
   @Post(':id/verification')
   async requestVerification(@Req() request: AuthRequest, @Param('id') id: string) {
     const account = await this.owned(request.user.id, id);
@@ -133,7 +160,7 @@ export class AccountsController {
   }
 
   private async owned(ownerId: string, id: string) {
-    const account = await this.prisma.wechatAccount.findFirst({ where: { id, ownerId } });
+    const account = await this.prisma.wechatAccount.findFirst({ where: { id, ownerId, status: 'ACTIVE' } });
     if (!account) throw new NotFoundException('发送账号不存在');
     return account;
   }

@@ -322,7 +322,7 @@ export class TasksService {
       this.prisma.wechatAccount.findMany({ where: { id: { in: accountIds }, ownerId, status: 'ACTIVE' } }),
       this.prisma.user.findUniqueOrThrow({ where: { id: ownerId }, select: { timezone: true } }),
     ]);
-    if (accounts.length !== accountIds.length) throw new BadRequestException('包含不存在或已停用的发送账号');
+    if (accounts.length !== accountIds.length) throw new BadRequestException('包含不存在或已删除的发送账号');
     if (accounts.some((account) => !account.emailVerifiedAt)) throw new BadRequestException('请先完成所有发送账号的邮箱验证');
     const accountMap = new Map(accounts.map((account) => [account.id, account]));
 
@@ -359,7 +359,7 @@ export class TasksService {
     const allFriendIds = selections.flatMap((selection) => selection.friendIds);
     const friends = await this.prisma.friend.findMany({ where: { id: { in: allFriendIds }, ownerId, status: 'ACTIVE' } });
     const friendMap = new Map(friends.map((friend) => [friend.id, friend]));
-    if (friendMap.size !== new Set(allFriendIds).size) throw new BadRequestException('包含不存在或已停用的好友');
+    if (friendMap.size !== new Set(allFriendIds).size) throw new BadRequestException('包含不存在或已删除的好友');
     for (const selection of selections) {
       if (selection.friendIds.some((id) => friendMap.get(id)?.accountId !== selection.accountId)) throw new BadRequestException('好友与发送账号不匹配');
     }
@@ -383,7 +383,7 @@ export class TasksService {
     let templateSnapshot: Prisma.InputJsonValue | undefined;
     if (body.templateId) {
       const template = await this.prisma.messageTemplate.findFirst({ where: { id: body.templateId, isActive: true, OR: [{ scope: 'PLATFORM' }, { ownerId }] } });
-      if (!template) throw new BadRequestException('所选模板不存在或已停用');
+      if (!template) throw new BadRequestException('所选模板不存在或已删除');
       templateSnapshot = { id: template.id, title: template.title, scope: template.scope, version: template.version, selectedContent: body.content };
     }
     const variableSnapshot = { version: 1, seed, variables } as Prisma.InputJsonValue;

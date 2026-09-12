@@ -35,10 +35,10 @@ export class FriendsController {
     await this.assertAccount(request.user.id, accountId);
     return this.prisma.friend.findMany({
       where: {
-        ownerId: request.user.id, accountId,
+        ownerId: request.user.id, accountId, status: 'ACTIVE',
         ...(search ? { remark: { contains: search, mode: 'insensitive' as const } } : {}),
       },
-      orderBy: [{ status: 'asc' }, { remark: 'asc' }],
+      orderBy: { remark: 'asc' },
       take: 500,
       include: {
         groupMemberships: { select: { groupId: true } },
@@ -88,7 +88,7 @@ export class FriendsController {
     @Param('id') id: string,
     @Body(new ZodPipe(patchFriendSchema)) body: z.infer<typeof patchFriendSchema>,
   ) {
-    const friend = await this.prisma.friend.findFirst({ where: { id, ownerId: request.user.id } });
+    const friend = await this.prisma.friend.findFirst({ where: { id, ownerId: request.user.id, status: 'ACTIVE' } });
     if (!friend) throw new NotFoundException('好友不存在');
     const remark = body.remark ? normalizeRemark(body.remark) : undefined;
     if (remark) this.validateRemark(remark);
@@ -106,6 +106,18 @@ export class FriendsController {
     return this.update(request, id, body);
   }
 
+  @Post('friends/:id/delete')
+  async remove(@Req() request: AuthRequest, @Param('id') id: string) {
+    const friend = await this.prisma.friend.findFirst({ where: { id, ownerId: request.user.id, status: 'ACTIVE' } });
+    if (!friend) throw new NotFoundException('好友不存在');
+    const processing = await this.prisma.taskMessage.count({
+      where: { friendId: id, status: { in: ['PENDING', 'SENDING', 'RETRY_WAIT'] } },
+    });
+    if (processing) throw new BadRequestException('该好友仍有待发送任务，请先取消或等待任务结束后再删除');
+    await this.prisma.friend.update({ where: { id }, data: { status: 'DISABLED', remarkKey: `__deleted__${id}` } });
+    return { ok: true };
+  }
+
   private validateRemark(remark: string) {
     try {
       assertSafeTagValue(remark);
@@ -116,7 +128,7 @@ export class FriendsController {
   }
 
   private async assertAccount(ownerId: string, accountId: string) {
-    const count = await this.prisma.wechatAccount.count({ where: { id: accountId, ownerId } });
+    const count = await this.prisma.wechatAccount.count({ where: { id: accountId, ownerId, status: 'ACTIVE' } });
     if (!count) throw new NotFoundException('发送账号不存在');
   }
 }

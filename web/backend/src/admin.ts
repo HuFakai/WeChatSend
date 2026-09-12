@@ -69,7 +69,7 @@ export class AdminService {
   }
 
   async channels() {
-    const rows = await this.prisma.aiChannel.findMany({ include: { models: { orderBy: { name: 'asc' } } }, orderBy: { createdAt: 'asc' } });
+    const rows = await this.prisma.aiChannel.findMany({ where: { isActive: true }, include: { models: { where: { isActive: true }, orderBy: { name: 'asc' } } }, orderBy: { createdAt: 'asc' } });
     return rows.map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, baseUrl: channel.baseUrl, isActive: channel.isActive, hasApiKey: Boolean(channel.encryptedApiKey), models: channel.models }));
   }
 
@@ -101,19 +101,31 @@ export class AdminService {
     try { return await this.prisma.aiModel.update({ where: { id }, data: body }); } catch (error) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new NotFoundException('AI 模型不存在'); throw error; }
   }
 
+  async deleteChannel(id: string) {
+    const result = await this.prisma.aiChannel.deleteMany({ where: { id } });
+    if (!result.count) throw new NotFoundException('AI 通道不存在');
+    return { ok: true };
+  }
+
+  async deleteModel(id: string) {
+    const result = await this.prisma.aiModel.deleteMany({ where: { id } });
+    if (!result.count) throw new NotFoundException('AI 模型不存在');
+    return { ok: true };
+  }
+
   async testAi(body: z.infer<typeof testAiSchema>) {
     return this.externalAiTest(body.modelId, body.prompt);
   }
 
   private async externalAiTest(modelId: string, prompt: string) {
     const result = await this.prisma.aiModel.findFirst({ where: { id: modelId, isActive: true, channel: { isActive: true } } });
-    if (!result) throw new NotFoundException('AI 模型不存在或已停用');
+    if (!result) throw new NotFoundException('AI 模型不存在或不可用');
     // This is deliberately delegated to the public service by the controller.
     return { modelId: result.id, prompt };
   }
 
   async integrations() {
-    const rows = await this.prisma.apiIntegration.findMany({ include: { variables: { orderBy: { name: 'asc' } } }, orderBy: { createdAt: 'asc' } });
+    const rows = await this.prisma.apiIntegration.findMany({ where: { enabled: true }, include: { variables: { orderBy: { name: 'asc' } } }, orderBy: { createdAt: 'asc' } });
     return rows.map((item) => ({ id: item.id, name: item.name, url: item.url, method: item.method, requestParams: item.requestParams, enabled: item.enabled, headerKeys: Object.keys(item.encryptedHeaders ? { configured: true } : {}), variables: item.variables }));
   }
 
@@ -157,8 +169,14 @@ export class AdminService {
     };
   }
 
+  async deleteIntegration(id: string) {
+    const result = await this.prisma.apiIntegration.deleteMany({ where: { id } });
+    if (!result.count) throw new NotFoundException('外部 API 不存在');
+    return { ok: true };
+  }
+
   async templates() {
-    return this.prisma.messageTemplate.findMany({ where: { scope: 'PLATFORM' }, orderBy: [{ category: 'asc' }, { updatedAt: 'desc' }] });
+    return this.prisma.messageTemplate.findMany({ where: { scope: 'PLATFORM', isActive: true }, orderBy: [{ category: 'asc' }, { updatedAt: 'desc' }] });
   }
 
   async createTemplate(body: z.infer<typeof platformTemplateSchema>) {
@@ -171,6 +189,12 @@ export class AdminService {
     if (!current) throw new NotFoundException('平台模板不存在');
     if (body.content) this.validateTemplate(body.content);
     return this.prisma.messageTemplate.update({ where: { id }, data: { ...body, ...(body.category === undefined ? {} : { category: body.category || null }), version: { increment: 1 } } });
+  }
+
+  async deleteTemplate(id: string) {
+    const result = await this.prisma.messageTemplate.deleteMany({ where: { id, scope: 'PLATFORM' } });
+    if (!result.count) throw new NotFoundException('平台模板不存在');
+    return { ok: true };
   }
 
   private validateTemplate(content: string) {
@@ -204,11 +228,17 @@ export class AdminController {
   @Patch('ai/channels/:id')
   updateChannel(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(patchChannelSchema)) body: z.infer<typeof patchChannelSchema>) { assertAdmin(request); return this.admin.updateChannel(id, body); }
 
+  @Post('ai/channels/:id/delete')
+  deleteChannel(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.admin.deleteChannel(id); }
+
   @Post('ai/channels/:id/models')
   addModel(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(modelSchema)) body: z.infer<typeof modelSchema>) { assertAdmin(request); return this.admin.addModel(id, body); }
 
   @Patch('ai/models/:id')
   updateModel(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(patchModelSchema)) body: z.infer<typeof patchModelSchema>) { assertAdmin(request); return this.admin.updateModel(id, body); }
+
+  @Post('ai/models/:id/delete')
+  deleteModel(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.admin.deleteModel(id); }
 
   @Post('ai/test')
   testAi(@Req() request: AuthRequest, @Body(new ZodPipe(testAiSchema)) body: z.infer<typeof testAiSchema>) { assertAdmin(request); return this.ai.generate(request.user.id, { mode: 'COPY', prompt: body.prompt, modelId: body.modelId }); }
@@ -222,6 +252,9 @@ export class AdminController {
   @Patch('templates/:id')
   updateTemplate(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(patchPlatformTemplateSchema)) body: z.infer<typeof patchPlatformTemplateSchema>) { assertAdmin(request); return this.admin.updateTemplate(id, body); }
 
+  @Post('templates/:id/delete')
+  deleteTemplate(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.admin.deleteTemplate(id); }
+
   @Get('integrations')
   integrations(@Req() request: AuthRequest) { assertAdmin(request); return this.admin.integrations(); }
 
@@ -233,4 +266,7 @@ export class AdminController {
 
   @Post('integrations/:id/test')
   testIntegration(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.admin.testIntegration(id); }
+
+  @Post('integrations/:id/delete')
+  deleteIntegration(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.admin.deleteIntegration(id); }
 }

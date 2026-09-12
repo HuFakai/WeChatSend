@@ -1,6 +1,8 @@
 import { Check, Clock, Send } from 'lucide-react';
+import { useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { LoadingState } from '@/components/states';
 import { cn } from '@/lib/utils';
 import type { CustomVariable, MessageTemplate, Segment } from '@/types';
@@ -13,10 +15,18 @@ export function BuilderProgress({ step, onStep }: { step: number; onStep: (step:
   })}</ol>;
 }
 
-export function ContentStep({ title, content, templateId, templates, variables, onTitle, onContent, onTemplate, onVariable }: { title: string; content: string; templateId: string | null; templates: MessageTemplate[]; variables: CustomVariable[]; onTitle: (value: string) => void; onContent: (value: string) => void; onTemplate: (id: string) => void; onVariable: (name: string) => void }) {
+export function ContentStep({ title, content, templateId, templates, variables, onTitle, onContent, onTemplate, onVariable }: { title: string; content: string; templateId: string | null; templates: MessageTemplate[]; variables: CustomVariable[]; onTitle: (value: string) => void; onContent: (value: string) => void; onTemplate: (id: string) => void; onVariable: (name: string, start?: number, end?: number) => void }) {
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const insert = (name: string) => {
+    const start = editorRef.current?.selectionStart ?? content.length;
+    const end = editorRef.current?.selectionEnd ?? start;
+    onVariable(name, start, end);
+    const cursor = start + name.length + 4;
+    requestAnimationFrame(() => { editorRef.current?.focus(); editorRef.current?.setSelectionRange(cursor, cursor); });
+  };
   return <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
-    <Card><CardHeader><CardTitle>消息内容</CardTitle></CardHeader><CardContent className="space-y-5"><label><span className="field-label">任务名称</span><Input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={100} placeholder="例如：中秋客户问候" /></label><label><span className="field-label">选择模板</span><select className="select" value={templateId ?? ''} onChange={(event) => onTemplate(event.target.value)}><option value="">不使用模板</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.scope === 'PLATFORM' ? '平台精选 · ' : '我的模板 · '}{item.title}</option>)}</select></label><label><span className="field-label">微信消息</span><textarea className="textarea min-h-72" value={content} onChange={(event) => onContent(event.target.value)} maxLength={10000} placeholder="输入要发送给好友的消息…" /><span className="field-help block">提交时会为每位好友生成并冻结最终文案。</span></label></CardContent></Card>
-    <Card><CardHeader><CardTitle>插入变量</CardTitle></CardHeader><CardContent><VariableGroup label="内置变量" items={builtInVariables} onSelect={onVariable} /><div className="my-5 border-t border-neutral-100" /><VariableGroup label="我的变量" items={variables.map((item) => ({ name: item.name, label: item.displayName }))} onSelect={onVariable} empty="尚未创建自定义变量" /></CardContent></Card>
+    <Card><CardHeader><CardTitle>消息内容</CardTitle></CardHeader><CardContent className="space-y-5"><label><span className="field-label">任务名称</span><Input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={100} placeholder="例如：中秋客户问候" /></label><label><span className="field-label">选择模板</span><select className="select" value={templateId ?? ''} onChange={(event) => onTemplate(event.target.value)}><option value="">不使用模板</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.scope === 'PLATFORM' ? '平台精选 · ' : '我的模板 · '}{item.title}</option>)}</select></label><label><span className="field-label">微信消息</span><Textarea ref={editorRef} className="min-h-72" value={content} onChange={(event) => onContent(event.target.value)} maxLength={10000} placeholder="输入要发送给好友的消息…" /><span className="field-help block">变量会插入当前光标位置；提交时为每位好友冻结最终文案。</span></label></CardContent></Card>
+    <Card><CardHeader><CardTitle>插入变量</CardTitle></CardHeader><CardContent><VariableGroup label="内置变量" items={builtInVariables} onSelect={insert} /><div className="my-5 border-t border-neutral-100" /><VariableGroup label="我的变量" items={variables.map((item) => ({ name: item.name, label: item.displayName }))} onSelect={insert} empty="尚未创建自定义变量" /></CardContent></Card>
   </div>;
 }
 

@@ -1,10 +1,10 @@
-import { Check, Mail, Plus, ShieldCheck } from 'lucide-react';
+import { Check, Mail, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Dialog } from '@/components/dialog';
+import { DeleteConfirm } from '@/components/delete-confirm';
 import { FormField } from '@/components/form-field';
 import { Page, PageHeader } from '@/components/page';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
-import { StatusBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useResource } from '@/hooks/use-resource';
@@ -59,10 +59,10 @@ export function AccountsPage() {
     } catch (reason) { accounts.setError((reason as Error).message); }
     finally { setBusy(false); }
   };
-  const toggle = async (account: Account) => {
+  const remove = async (account: Account) => {
     accounts.setError('');
     try {
-      await patch(`/accounts/${account.id}`, { status: account.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' });
+      await post(`/accounts/${account.id}/delete`);
       await accounts.reload();
     } catch (reason) { accounts.setError((reason as Error).message); }
   };
@@ -71,13 +71,12 @@ export function AccountsPage() {
     <PageHeader eyebrow="Delivery channels" title="发送账号" description="一个发送账号固定对应一台 iPhone 和一个已验证接收邮箱。" actions={<Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4" />添加账号</Button>} />
     {accounts.error ? <ErrorState message={accounts.error} retry={accounts.reload} /> : null}
     {accounts.loading && !accounts.data ? <LoadingState /> : accounts.data?.length === 0 ? <EmptyState title="还没有发送账号" detail="先填写手机接收邮件的地址，再按引导完成邮箱验证。" action={{ label: '添加账号', onClick: () => setShowForm(true) }} /> : accounts.data ? <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
-      <div className="hidden grid-cols-[1.1fr_1.5fr_.8fr_.7fr_140px] gap-4 border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-neutral-500 md:grid"><span>账号</span><span>接收邮箱</span><span>发送间隔</span><span>状态</span><span>操作</span></div>
-      {accounts.data.map((account) => <article key={account.id} className="grid gap-3 border-b border-neutral-100 px-5 py-5 last:border-0 md:grid-cols-[1.1fr_1.5fr_.8fr_.7fr_140px] md:items-center md:gap-4">
+      <div className="hidden grid-cols-[1.1fr_1.6fr_.8fr_180px] gap-4 border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-neutral-500 md:grid"><span>账号</span><span>接收邮箱</span><span>发送间隔</span><span>操作</span></div>
+      {accounts.data.map((account) => <article key={account.id} className="grid gap-3 border-b border-neutral-100 px-5 py-5 last:border-0 md:grid-cols-[1.1fr_1.6fr_.8fr_180px] md:items-center md:gap-4">
         <div><p className="font-medium">{account.name}</p><p className="mt-1 text-xs text-neutral-400">{account._count.friends} 位好友</p></div>
         <div><p className="break-all text-sm">{account.recipientEmail}</p>{account.emailVerifiedAt ? <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700"><Check className="h-3 w-3" />邮箱已验证</p> : <button type="button" onClick={() => void sendCode(account)} className="mt-1 text-xs font-medium underline underline-offset-4">验证邮箱</button>}</div>
         <p className="font-mono text-sm">{account.minDelay === account.maxDelay ? `${account.minDelay}s` : `${account.minDelay}–${account.maxDelay}s`}</p>
-        <StatusBadge status={account.status} />
-        <div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => edit(account)}>编辑</Button><Button variant="ghost" size="sm" onClick={() => void toggle(account)}>{account.status === 'ACTIVE' ? '停用' : '启用'}</Button></div>
+        <div className="flex justify-end gap-1"><Button variant="ghost" size="sm" onClick={() => edit(account)}>编辑</Button><DeleteConfirm title={`删除“${account.name}”？`} description="账号及其好友将从工作台移除，历史任务记录仍会保留。存在待发送任务时系统会拒绝删除。" onConfirm={() => remove(account)} trigger={<Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 />删除</Button>} /></div>
       </article>)}
     </section> : null}
 

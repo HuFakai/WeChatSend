@@ -6,8 +6,6 @@ dist/
 !.env.example
 !web/deploy/.env.production.example
 coverage/
-playwright-report/
-test-results/
 *.log
 *.tsbuildinfo
 .idea/

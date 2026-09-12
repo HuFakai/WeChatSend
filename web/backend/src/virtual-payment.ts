@@ -331,7 +331,7 @@ export class VirtualPaymentService {
   }
 
   async adminPlans() {
-    return this.prisma.membershipPlan.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+    return this.prisma.membershipPlan.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
   }
 
   async createPlan(body: z.infer<typeof planSchema>) {
@@ -342,6 +342,16 @@ export class VirtualPaymentService {
   async updatePlan(id: string, body: z.infer<typeof patchPlanSchema>) {
     try { return await this.prisma.membershipPlan.update({ where: { id }, data: body }); }
     catch (error) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new NotFoundException('套餐不存在'); throw error; }
+  }
+
+  async deletePlan(id: string) {
+    try {
+      await this.prisma.membershipPlan.update({ where: { id }, data: { isActive: false } });
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new NotFoundException('套餐不存在');
+      throw error;
+    }
   }
 
   private async paymentConfig() {
@@ -433,4 +443,6 @@ export class VirtualPaymentAdminController {
   @Post('plans') createPlan(@Req() request: AuthRequest, @Body(new ZodPipe(planSchema)) body: z.infer<typeof planSchema>) { assertAdmin(request); return this.payment.createPlan(body); }
 
   @Patch('plans/:id') updatePlan(@Req() request: AuthRequest, @Param('id') id: string, @Body(new ZodPipe(patchPlanSchema)) body: z.infer<typeof patchPlanSchema>) { assertAdmin(request); return this.payment.updatePlan(id, body); }
+
+  @Post('plans/:id/delete') deletePlan(@Req() request: AuthRequest, @Param('id') id: string) { assertAdmin(request); return this.payment.deletePlan(id); }
 }

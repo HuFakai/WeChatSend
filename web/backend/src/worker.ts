@@ -208,7 +208,7 @@ async function processMessage(job: Job<{ messageId: string }>, token?: string) {
     if (friend.status !== 'ACTIVE' || friend.remark !== message.friendRemark) {
       await prisma.taskMessage.update({
         where: { id: message.id },
-        data: { status: 'SKIPPED', errorCode: 'FRIEND_CHANGED', errorMessage: '好友已停用或备注已变更' },
+        data: { status: 'SKIPPED', errorCode: 'FRIEND_CHANGED', errorMessage: '好友已删除或备注已变更' },
       });
       return;
     }
