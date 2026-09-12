@@ -65,3 +65,6 @@ Content-Type: application/json
 - `miniprogram`：原生微信小程序
 - `docs`：产品、协议和阶段计划
 - `UI`：黑白极简设计参考
+
+Web 端的信息架构、代码边界、视觉规范和后续维护规则见
+[Web 端重构方案](docs/Web端重构方案.md)。

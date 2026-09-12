@@ -1,27 +1,60 @@
-import { Bookmark, Copy, Plus, Sparkles, X } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Bookmark, Copy, Plus, Sparkles } from 'lucide-react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Dialog } from '@/components/dialog';
+import { FormField } from '@/components/form-field';
+import { Page, PageHeader } from '@/components/page';
+import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { EmptyState, ErrorState, LoadingState } from '@/components/states';
+import { useResource } from '@/hooks/use-resource';
 import { api, patch, post } from '@/lib/api';
-import { MessageTemplate } from '@/types';
 import { cn } from '@/lib/utils';
+import type { MessageTemplate } from '@/types';
+
+type TemplateTab = 'ALL' | 'PLATFORM' | 'USER' | 'FAVORITE';
+const tabs: ReadonlyArray<[TemplateTab, string]> = [['ALL', '全部'], ['PLATFORM', '平台精选'], ['USER', '我的模板'], ['FAVORITE', '已收藏']];
 
 export function TemplatesPage() {
   const navigate = useNavigate();
-  const [items, setItems] = useState<MessageTemplate[]>(); const [error, setError] = useState('');
-  const [tab, setTab] = useState<'ALL'|'PLATFORM'|'USER'|'FAVORITE'>('ALL'); const [editing, setEditing] = useState<Partial<MessageTemplate>>(); const [busy, setBusy] = useState(false);
-  const load = () => api<MessageTemplate[]>('/templates').then(setItems).catch((reason) => setError(reason.message));
-  useEffect(() => { void load(); }, []);
-  const visible = useMemo(() => items?.filter((item) => tab === 'ALL' || (tab === 'FAVORITE' ? item.favorite : item.scope === tab)), [items, tab]);
-  const save = async (event: FormEvent) => { event.preventDefault(); if (!editing?.title?.trim() || !editing.content?.trim()) return; setBusy(true); try { const body = { title: editing.title, content: editing.content, category: editing.category || null }; editing.id ? await patch(`/templates/${editing.id}`, body) : await post('/templates', body); setEditing(undefined); await load(); } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); } };
-  const favorite = async (item: MessageTemplate) => { await post(`/templates/${item.id}/favorite`); await load(); };
-  const copy = async (item: MessageTemplate) => { await post(`/templates/${item.id}/copy`); setTab('USER'); await load(); };
-  return <div className="page-enter space-y-6"><header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="font-mono text-[11px] uppercase tracking-[.22em] text-neutral-400">Content Library</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.03em]">文案模板</h1><p className="mt-2 text-sm text-neutral-500">精选内容与我的模板集中管理，提交任务时冻结使用版本。</p></div><Button onClick={() => setEditing({ title: '', content: '', category: '' })}><Plus className="h-4 w-4" />新建模板</Button></header>{error && <ErrorState message={error} retry={load} />}
-    <div className="flex flex-wrap gap-2">{([['ALL','全部'],['PLATFORM','平台精选'],['USER','我的模板'],['FAVORITE','已收藏']] as const).map(([value,label]) => <button key={value} onClick={() => setTab(value)} className={cn('rounded-full border px-4 py-2 text-xs transition-colors', tab === value ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-neutral-200 bg-white hover:border-emerald-500')}>{label}</button>)}</div>
-    {!items ? <LoadingState /> : !visible?.length ? <EmptyState title="这里还没有模板" detail="新建模板，或收藏平台提供的精选内容。" /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((item) => <Card key={item.id} className="group flex min-h-72 flex-col overflow-hidden p-0"><div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4"><span className="rounded-full bg-neutral-100 px-3 py-1 font-mono text-[10px] uppercase tracking-wider">{item.scope === 'PLATFORM' ? 'SELECTED' : `MY · V${item.version}`}</span><button onClick={() => favorite(item)} className={cn('rounded-full p-2', item.favorite ? 'bg-emerald-700 text-white' : 'text-neutral-400 hover:bg-emerald-50 hover:text-emerald-700')}><Bookmark className="h-4 w-4" fill={item.favorite ? 'currentColor' : 'none'} /></button></div><div className="flex flex-1 flex-col p-5"><p className="text-xs text-neutral-400">{item.category || '未分类'}</p><h2 className="mt-2 text-lg font-semibold">{item.title}</h2><p className="mt-4 line-clamp-5 whitespace-pre-wrap text-sm leading-7 text-neutral-600">{item.content}</p><div className="mt-auto flex gap-2 pt-5"><Button className="flex-1" onClick={() => navigate(`/tasks/new?template=${item.id}`)}><Sparkles className="h-4 w-4" />使用</Button>{item.scope === 'USER' ? <Button variant="outline" onClick={() => setEditing(item)}>编辑</Button> : <Button variant="outline" onClick={() => copy(item)}><Copy className="h-4 w-4" />复制</Button>}</div></div></Card>)}</div>}
-    {editing && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={() => setEditing(undefined)}><Card className="w-full max-w-2xl rounded-b-none p-6 shadow-2xl sm:rounded-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-neutral-400">Template Editor</p><h2 className="mt-1 text-xl font-semibold">{editing.id ? '编辑我的模板' : '创建我的模板'}</h2></div><Button variant="ghost" size="icon" onClick={() => setEditing(undefined)}><X className="h-4 w-4" /></Button></div><form className="mt-6 space-y-4" onSubmit={save}><label><span className="field-label">模板名称</span><Input value={editing.title ?? ''} onChange={(e) => setEditing({ ...editing, title: e.target.value })} maxLength={100} /></label><label><span className="field-label">分类</span><Input value={editing.category ?? ''} onChange={(e) => setEditing({ ...editing, category: e.target.value })} placeholder="例如：节日问候" /></label><label><span className="field-label">模板内容</span><textarea className="textarea min-h-52" value={editing.content ?? ''} onChange={(e) => setEditing({ ...editing, content: e.target.value })} placeholder="可插入 {{friend_name}}、{{date}} 等变量" /></label><Button className="w-full" disabled={busy}>{busy ? '保存中…' : '保存模板'}</Button></form></Card></div>}
-  </div>;
+  const templates = useResource(() => api<MessageTemplate[]>('/templates'), []);
+  const [tab, setTab] = useState<TemplateTab>('ALL');
+  const [editing, setEditing] = useState<Partial<MessageTemplate>>();
+  const [busy, setBusy] = useState(false);
+  const visible = useMemo(() => templates.data?.filter((item) => tab === 'ALL' || (tab === 'FAVORITE' ? item.favorite : item.scope === tab)), [templates.data, tab]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editing?.title?.trim() || !editing.content?.trim()) { templates.setError('模板名称和内容不能为空'); return; }
+    setBusy(true); templates.setError('');
+    try {
+      const body = { title: editing.title.trim(), content: editing.content.trim(), category: editing.category?.trim() || null };
+      if (editing.id) await patch(`/templates/${editing.id}`, body);
+      else await post('/templates', body);
+      setEditing(undefined);
+      await templates.reload();
+    } catch (reason) { templates.setError((reason as Error).message); }
+    finally { setBusy(false); }
+  };
+  const favorite = async (item: MessageTemplate) => { try { await post(`/templates/${item.id}/favorite`); await templates.reload(); } catch (reason) { templates.setError((reason as Error).message); } };
+  const copy = async (item: MessageTemplate) => { try { await post(`/templates/${item.id}/copy`); setTab('USER'); await templates.reload(); } catch (reason) { templates.setError((reason as Error).message); } };
+
+  return <Page>
+    <PageHeader eyebrow="Content library" title="文案模板" description="精选内容与个人模板集中管理；任务提交时会冻结本次使用的模板版本。" actions={<Button onClick={() => setEditing({ title: '', content: '', category: '' })}><Plus className="h-4 w-4" />新建模板</Button>} />
+    {templates.error ? <ErrorState message={templates.error} retry={templates.reload} /> : null}
+    <nav className="flex flex-wrap gap-2" aria-label="模板筛选">{tabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className={cn('rounded-full border px-4 py-2 text-xs transition-colors', tab === value ? 'border-neutral-950 bg-neutral-950 text-white' : 'border-neutral-200 bg-white hover:border-neutral-500')}>{label}</button>)}</nav>
+    {templates.loading && !templates.data ? <LoadingState /> : !visible?.length ? <EmptyState title="这里还没有模板" detail="新建模板，或收藏平台提供的精选内容。" /> : <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((item) => <Card key={item.id} className="group flex min-h-72 flex-col overflow-hidden p-0">
+      <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4"><span className="rounded-full bg-neutral-100 px-3 py-1 font-mono text-[10px] uppercase tracking-wider">{item.scope === 'PLATFORM' ? 'SELECTED' : `MY · V${item.version}`}</span><button type="button" aria-label={item.favorite ? '取消收藏' : '收藏模板'} onClick={() => void favorite(item)} className={cn('rounded-full p-2 transition-colors', item.favorite ? 'bg-neutral-950 text-white' : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-950')}><Bookmark className="h-4 w-4" fill={item.favorite ? 'currentColor' : 'none'} /></button></div>
+      <div className="flex flex-1 flex-col p-5"><p className="text-xs text-neutral-400">{item.category || '未分类'}</p><h2 className="mt-2 text-lg font-semibold">{item.title}</h2><p className="mt-4 line-clamp-5 whitespace-pre-wrap text-sm leading-7 text-neutral-600">{item.content}</p><div className="mt-auto flex gap-2 pt-5"><Button className="flex-1" onClick={() => navigate(`/tasks/new?template=${item.id}`)}><Sparkles className="h-4 w-4" />使用</Button>{item.scope === 'USER' ? <Button variant="outline" onClick={() => setEditing(item)}>编辑</Button> : <Button variant="outline" onClick={() => void copy(item)}><Copy className="h-4 w-4" />复制</Button>}</div></div>
+    </Card>)}</section>}
+    <Dialog open={Boolean(editing)} onClose={() => setEditing(undefined)} title={editing?.id ? '编辑我的模板' : '创建我的模板'} description="变量使用双花括号，例如 {{friend_name}}。" className="max-w-2xl">
+      {editing ? <form className="space-y-4" onSubmit={save}>
+        <FormField label="模板名称" required><Input value={editing.title ?? ''} onChange={(event) => setEditing({ ...editing, title: event.target.value })} maxLength={100} /></FormField>
+        <FormField label="分类"><Input value={editing.category ?? ''} onChange={(event) => setEditing({ ...editing, category: event.target.value })} placeholder="例如：节日问候" /></FormField>
+        <FormField label="模板内容" required><textarea className="textarea min-h-52" value={editing.content ?? ''} onChange={(event) => setEditing({ ...editing, content: event.target.value })} placeholder="可插入 {{friend_name}}、{{date}} 等变量" /></FormField>
+        <Button className="w-full" disabled={busy}>{busy ? '保存中…' : '保存模板'}</Button>
+      </form> : null}
+    </Dialog>
+  </Page>;
 }

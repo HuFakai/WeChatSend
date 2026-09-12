@@ -1,31 +1,103 @@
-import { Check, Mail, Plus, ShieldCheck, X } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
-import { api, patch, post } from '@/lib/api';
-import { Account } from '@/types';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
+import { Check, Mail, Plus, ShieldCheck } from 'lucide-react';
+import { type FormEvent, useState } from 'react';
+import { Dialog } from '@/components/dialog';
+import { FormField } from '@/components/form-field';
+import { Page, PageHeader } from '@/components/page';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { StatusBadge } from '@/components/status';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useResource } from '@/hooks/use-resource';
+import { api, patch, post } from '@/lib/api';
+import type { Account } from '@/types';
 
 const emptyForm = { name: '', recipientEmail: '', subject: 'WeChatSend', minDelay: 10, maxDelay: 15 };
 
 export function AccountsPage() {
-  const [items, setItems] = useState<Account[]>(); const [error, setError] = useState('');
-  const [showForm, setShowForm] = useState(false); const [form, setForm] = useState(emptyForm);
+  const accounts = useResource(() => api<Account[]>('/accounts'), []);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string>();
-  const [verify, setVerify] = useState<Account>(); const [code, setCode] = useState(''); const [busy, setBusy] = useState(false);
-  const load = () => api<Account[]>('/accounts').then(setItems).catch((e) => setError(e.message));
-  useEffect(() => { void load(); }, []);
-  const save = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setError(''); try { if (editingId) await patch(`/accounts/${editingId}`, form); else await post('/accounts', form); setShowForm(false); setEditingId(undefined); setForm(emptyForm); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
-  const edit = (account: Account) => { setEditingId(account.id); setForm({ name: account.name, recipientEmail: account.recipientEmail, subject: account.subject, minDelay: account.minDelay, maxDelay: account.maxDelay }); setShowForm(true); };
-  const sendCode = async (account: Account) => { setVerify(account); setBusy(true); setError(''); try { await post(`/accounts/${account.id}/verification`); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
-  const confirm = async () => { if (!verify) return; setBusy(true); try { await post(`/accounts/${verify.id}/verification/confirm`, { code }); setVerify(undefined); setCode(''); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
-  const toggle = async (account: Account) => { await patch(`/accounts/${account.id}`, { status: account.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' }); await load(); };
+  const [verify, setVerify] = useState<Account>();
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  return <div className="page-enter space-y-6"><header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="font-mono text-[11px] uppercase tracking-[.22em] text-neutral-400">Channels</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.03em]">发送账号</h1><p className="mt-2 text-sm text-neutral-500">一个账号对应一台 iPhone 和一个接收邮箱。</p></div><Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4" />添加账号</Button></header>
-    {error && <ErrorState message={error} />}{!items ? <LoadingState /> : items.length === 0 ? <EmptyState title="还没有发送账号" detail="先填写手机接收邮件的地址，再按引导完成邮箱验证。" action={{ label: '添加账号', onClick: () => setShowForm(true) }} /> : <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white"><div className="hidden grid-cols-[1.1fr_1.5fr_.8fr_.7fr_120px] gap-4 border-b border-neutral-200 bg-neutral-50 px-5 py-3 text-xs font-medium text-neutral-500 md:grid"><span>账号</span><span>接收邮箱</span><span>发送间隔</span><span>状态</span><span>操作</span></div>{items.map((account) => <div key={account.id} className="grid gap-3 border-b border-neutral-100 px-5 py-5 last:border-0 md:grid-cols-[1.1fr_1.5fr_.8fr_.7fr_120px] md:items-center md:gap-4"><div><p className="font-medium">{account.name}</p><p className="mt-1 text-xs text-neutral-400">{account._count.friends} 位好友</p></div><div><p className="text-sm">{account.recipientEmail}</p>{account.emailVerifiedAt ? <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700"><Check className="h-3 w-3" />邮箱已验证</p> : <button onClick={() => sendCode(account)} className="mt-1 text-xs font-medium underline">验证邮箱</button>}</div><p className="font-mono text-sm">{account.minDelay === account.maxDelay ? `${account.minDelay}s` : `${account.minDelay}–${account.maxDelay}s`}</p><StatusBadge status={account.status} /><div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => edit(account)}>编辑</Button><Button variant="ghost" size="sm" onClick={() => toggle(account)}>{account.status === 'ACTIVE' ? '停用' : '启用'}</Button></div></div>)}</div>}
-    {showForm && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4" onClick={() => { setShowForm(false); setEditingId(undefined); setForm(emptyForm); }}><Card className="w-full max-w-lg rounded-b-none p-6 shadow-2xl sm:rounded-xl" onClick={(e) => e.stopPropagation()}><div className="flex items-start justify-between"><div><h2 className="text-xl font-semibold">{editingId ? '编辑发送账号' : '添加发送账号'}</h2><p className="mt-1 text-sm text-neutral-500">填写 iPhone 邮件自动化实际接收地址。</p></div><Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(undefined); setForm(emptyForm); }}><X className="h-4 w-4" /></Button></div><form className="mt-7 space-y-5" onSubmit={save}><label><span className="field-label">账号名称</span><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例如：销售一号机" required /></label><label><span className="field-label">接收邮箱</span><Input type="email" value={form.recipientEmail} onChange={(e) => setForm({ ...form, recipientEmail: e.target.value })} placeholder="name@example.com" required /></label><label><span className="field-label">邮件主题</span><Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} required /><span className="field-help">必须与 iPhone 邮件自动化中的主题完全一致。</span></label><div className="grid grid-cols-2 gap-4"><label><span className="field-label">最小间隔（秒）</span><Input type="number" min="10" value={form.minDelay} onChange={(e) => setForm({ ...form, minDelay: Number(e.target.value) })} /></label><label><span className="field-label">最大间隔（秒）</span><Input type="number" min="10" value={form.maxDelay} onChange={(e) => setForm({ ...form, maxDelay: Number(e.target.value) })} /></label></div><Button className="w-full" disabled={busy}>{busy ? '正在保存…' : '保存账号'}</Button></form></Card></div>}
-    {verify && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onClick={() => setVerify(undefined)}><Card className="w-full max-w-sm p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100"><ShieldCheck className="h-5 w-5" /></span><h2 className="mt-5 text-xl font-semibold">验证接收邮箱</h2><p className="mt-2 text-sm leading-6 text-neutral-500">验证码已发送到 {verify.recipientEmail}，10 分钟内有效。</p><label className="mt-6 block"><span className="field-label">6 位验证码</span><Input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="000000" /></label><div className="mt-5 flex gap-3"><Button variant="outline" className="flex-1" onClick={() => sendCode(verify)} disabled={busy}><Mail className="h-4 w-4" />重新发送</Button><Button className="flex-1" onClick={confirm} disabled={busy || code.length !== 6}>确认验证</Button></div></Card></div>}
-  </div>;
+  const closeForm = () => { setShowForm(false); setEditingId(undefined); setForm(emptyForm); };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (form.minDelay < 10 || form.maxDelay < form.minDelay) {
+      accounts.setError('发送间隔至少为 10 秒，且最大间隔不能小于最小间隔');
+      return;
+    }
+    setBusy(true); accounts.setError('');
+    try {
+      if (editingId) await patch(`/accounts/${editingId}`, form);
+      else await post('/accounts', form);
+      closeForm();
+      await accounts.reload();
+    } catch (reason) { accounts.setError((reason as Error).message); }
+    finally { setBusy(false); }
+  };
+  const edit = (account: Account) => {
+    setEditingId(account.id);
+    setForm({ name: account.name, recipientEmail: account.recipientEmail, subject: account.subject, minDelay: account.minDelay, maxDelay: account.maxDelay });
+    setShowForm(true);
+  };
+  const sendCode = async (account: Account) => {
+    setVerify(account); setBusy(true); accounts.setError('');
+    try { await post(`/accounts/${account.id}/verification`); }
+    catch (reason) { accounts.setError((reason as Error).message); }
+    finally { setBusy(false); }
+  };
+  const confirmVerification = async () => {
+    if (!verify) return;
+    setBusy(true); accounts.setError('');
+    try {
+      await post(`/accounts/${verify.id}/verification/confirm`, { code });
+      setVerify(undefined); setCode('');
+      await accounts.reload();
+    } catch (reason) { accounts.setError((reason as Error).message); }
+    finally { setBusy(false); }
+  };
+  const toggle = async (account: Account) => {
+    accounts.setError('');
+    try {
+      await patch(`/accounts/${account.id}`, { status: account.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' });
+      await accounts.reload();
+    } catch (reason) { accounts.setError((reason as Error).message); }
+  };
+
+  return <Page>
+    <PageHeader eyebrow="Delivery channels" title="发送账号" description="一个发送账号固定对应一台 iPhone 和一个已验证接收邮箱。" actions={<Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4" />添加账号</Button>} />
+    {accounts.error ? <ErrorState message={accounts.error} retry={accounts.reload} /> : null}
+    {accounts.loading && !accounts.data ? <LoadingState /> : accounts.data?.length === 0 ? <EmptyState title="还没有发送账号" detail="先填写手机接收邮件的地址，再按引导完成邮箱验证。" action={{ label: '添加账号', onClick: () => setShowForm(true) }} /> : accounts.data ? <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+      <div className="hidden grid-cols-[1.1fr_1.5fr_.8fr_.7fr_140px] gap-4 border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-neutral-500 md:grid"><span>账号</span><span>接收邮箱</span><span>发送间隔</span><span>状态</span><span>操作</span></div>
+      {accounts.data.map((account) => <article key={account.id} className="grid gap-3 border-b border-neutral-100 px-5 py-5 last:border-0 md:grid-cols-[1.1fr_1.5fr_.8fr_.7fr_140px] md:items-center md:gap-4">
+        <div><p className="font-medium">{account.name}</p><p className="mt-1 text-xs text-neutral-400">{account._count.friends} 位好友</p></div>
+        <div><p className="break-all text-sm">{account.recipientEmail}</p>{account.emailVerifiedAt ? <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700"><Check className="h-3 w-3" />邮箱已验证</p> : <button type="button" onClick={() => void sendCode(account)} className="mt-1 text-xs font-medium underline underline-offset-4">验证邮箱</button>}</div>
+        <p className="font-mono text-sm">{account.minDelay === account.maxDelay ? `${account.minDelay}s` : `${account.minDelay}–${account.maxDelay}s`}</p>
+        <StatusBadge status={account.status} />
+        <div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => edit(account)}>编辑</Button><Button variant="ghost" size="sm" onClick={() => void toggle(account)}>{account.status === 'ACTIVE' ? '停用' : '启用'}</Button></div>
+      </article>)}
+    </section> : null}
+
+    <Dialog open={showForm} onClose={closeForm} title={editingId ? '编辑发送账号' : '添加发送账号'} description="填写 iPhone 邮件自动化实际接收地址。">
+      <form className="space-y-5" onSubmit={save}>
+        <FormField label="账号名称" required><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="例如：销售一号机" required /></FormField>
+        <FormField label="接收邮箱" required><Input type="email" value={form.recipientEmail} onChange={(event) => setForm({ ...form, recipientEmail: event.target.value })} placeholder="name@example.com" required /></FormField>
+        <FormField label="邮件主题" hint="必须与 iPhone 邮件自动化中的主题完全一致。" required><Input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required /></FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="最小间隔（秒）"><Input type="number" min="10" value={form.minDelay} onChange={(event) => setForm({ ...form, minDelay: Number(event.target.value) })} /></FormField>
+          <FormField label="最大间隔（秒）"><Input type="number" min="10" value={form.maxDelay} onChange={(event) => setForm({ ...form, maxDelay: Number(event.target.value) })} /></FormField>
+        </div>
+        <Button className="w-full" disabled={busy}>{busy ? '正在保存…' : '保存账号'}</Button>
+      </form>
+    </Dialog>
+
+    <Dialog open={Boolean(verify)} onClose={() => { setVerify(undefined); setCode(''); }} title="验证接收邮箱" description={verify ? `验证码已发送到 ${verify.recipientEmail}，10 分钟内有效。` : undefined} className="max-w-sm">
+      <span className="mb-5 flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100"><ShieldCheck className="h-5 w-5" /></span>
+      <FormField label="6 位验证码"><Input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" /></FormField>
+      <div className="mt-5 flex gap-3"><Button variant="outline" className="flex-1" onClick={() => verify && void sendCode(verify)} disabled={busy}><Mail className="h-4 w-4" />重新发送</Button><Button className="flex-1" onClick={() => void confirmVerification()} disabled={busy || code.length !== 6}>确认验证</Button></div>
+    </Dialog>
+  </Page>;
 }
