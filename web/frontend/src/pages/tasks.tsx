@@ -1,4 +1,5 @@
-import { CalendarClock, ChevronRight, FilePenLine, Plus, Send, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, FilePenLine, Plus, Search, Send, Trash2 } from 'lucide-react';
+import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -9,14 +10,26 @@ import { api, post } from '@/lib/api';
 import { formatShortDateTime } from '@/lib/format';
 import type { Task, TaskDraft } from '@/types';
 
-type TaskCollection = { tasks: Task[]; drafts: TaskDraft[] };
+type TaskPage = { items: Task[]; total: number; page: number; pageSize: number };
+type TaskCollection = { taskPage: TaskPage; drafts: TaskDraft[] };
 
 export function TasksPage() {
   const navigate = useNavigate();
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const resource = useResource<TaskCollection>(async () => {
-    const [tasks, drafts] = await Promise.all([api<Task[]>('/tasks'), api<TaskDraft[]>('/drafts')]);
-    return { tasks, drafts };
-  }, []);
+    const query = new URLSearchParams({ page: String(page), pageSize: '20' });
+    if (search) query.set('search', search);
+    const [taskPage, drafts] = await Promise.all([api<TaskPage>(`/tasks/page?${query}`), api<TaskDraft[]>('/drafts')]);
+    return { taskPage, drafts };
+  }, [page, search]);
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+    setPage(1);
+    setSearch(searchInput.trim());
+  };
 
   const removeDraft = async (id: string) => {
     try { await post(`/drafts/${id}/delete`); await resource.reload(); }
@@ -35,10 +48,16 @@ export function TasksPage() {
       </article>)}</div>
     </section> : null}
     <section>
-      <SectionHeading title="任务记录" description="按创建时间倒序排列" />
-      {resource.loading && !resource.data ? <LoadingState /> : !resource.data?.tasks.length ? <EmptyState title="还没有发送任务" detail="创建第一条任务，选择好友并立即或定时投递。" action={{ label: '创建任务', onClick: () => navigate('/tasks/new') }} /> : <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <SectionHeading title="任务记录" description={resource.data ? `共 ${resource.data.taskPage.total} 条，按创建时间倒序排列` : '按创建时间倒序排列'} />
+        <form onSubmit={submitSearch} className="flex w-full max-w-sm gap-2" role="search">
+          <label className="relative min-w-0 flex-1"><span className="sr-only">搜索任务</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input className="input pl-9" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="搜索标题或消息内容" /></label>
+          <Button variant="outline" disabled={resource.loading}>搜索</Button>
+        </form>
+      </div>
+      {resource.loading && !resource.data ? <LoadingState /> : !resource.data?.taskPage.items.length ? <EmptyState title={search ? '没有匹配的任务' : '还没有发送任务'} detail={search ? '请调整关键词后重试。' : '创建第一条任务，选择好友并立即或定时投递。'} action={search ? { label: '清除搜索', onClick: () => { setSearchInput(''); setSearch(''); setPage(1); } } : { label: '创建任务', onClick: () => navigate('/tasks/new') }} /> : <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
         <div className="hidden grid-cols-[minmax(0,1.6fr)_150px_210px_80px_28px] gap-4 border-b border-neutral-200 bg-neutral-50 px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-neutral-400 md:grid"><span>任务内容</span><span>状态</span><span>计划时间</span><span>人数</span><span /></div>
-        {resource.data.tasks.map((task) => <Link to={`/tasks/${task.id}`} key={task.id} className="grid gap-4 border-b border-neutral-100 px-5 py-5 transition-colors last:border-0 hover:bg-neutral-50 md:grid-cols-[minmax(0,1.6fr)_150px_210px_80px_28px] md:items-center">
+        {resource.data.taskPage.items.map((task) => <Link to={`/tasks/${task.id}`} key={task.id} className="grid gap-4 border-b border-neutral-100 px-5 py-5 transition-colors last:border-0 hover:bg-neutral-50 md:grid-cols-[minmax(0,1.6fr)_150px_210px_80px_28px] md:items-center">
           <div className="min-w-0"><p className="truncate font-medium text-neutral-950">{task.title}</p><p className="mt-1 truncate text-sm text-neutral-500">{task.content}</p></div>
           <StatusBadge status={task.status} />
           <div className="flex items-center gap-2 text-xs text-neutral-500"><CalendarClock className="h-3.5 w-3.5" />{formatShortDateTime(task.scheduledAt)}</div>
@@ -46,7 +65,16 @@ export function TasksPage() {
           <ChevronRight className="h-4 w-4 text-neutral-400" />
         </Link>)}
       </div>}
+      {resource.data && resource.data.taskPage.total > resource.data.taskPage.pageSize ? <TaskPagination page={page} total={resource.data.taskPage.total} pageSize={resource.data.taskPage.pageSize} busy={resource.loading} onPage={setPage} /> : null}
     </section>
     <aside className="flex items-start gap-3 rounded-xl border border-neutral-300 bg-neutral-100 p-4 text-xs leading-5 text-neutral-600"><Send className="mt-0.5 h-4 w-4 shrink-0" /><p>“邮件已发送”仅表示发信服务器接受邮件；微信是否成功，以快捷指令反馈或一分钟超时结果为准。</p></aside>
   </Page>;
+}
+
+function TaskPagination({ page, total, pageSize, busy, onPage }: { page: number; total: number; pageSize: number; busy: boolean; onPage: (page: number) => void }) {
+  const pages = Math.ceil(total / pageSize);
+  return <nav className="mt-4 flex items-center justify-between" aria-label="任务分页">
+    <p className="text-xs text-neutral-500">第 {page} / {pages} 页</p>
+    <div className="flex gap-2"><Button variant="outline" size="sm" disabled={busy || page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft className="h-4 w-4" />上一页</Button><Button variant="outline" size="sm" disabled={busy || page >= pages} onClick={() => onPage(page + 1)}>下一页<ChevronRight className="h-4 w-4" /></Button></div>
+  </nav>;
 }

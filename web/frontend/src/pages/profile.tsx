@@ -7,6 +7,7 @@ import { Page, PageHeader, SectionHeading } from '@/components/page';
 import { ErrorState, LoadingState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { useToast } from '@/components/toast';
 import { useResource } from '@/hooks/use-resource';
 import { api } from '@/lib/api';
 
@@ -15,14 +16,13 @@ type Profile = { username: string; email?: string; hasMiniOpenid: boolean };
 export function ProfilePage() {
   const profile = useResource(() => api<Profile>('/auth/me'), []);
   const [binding, setBinding] = useState<'email' | 'wechat' | ''>('');
-  const [notice, setNotice] = useState('');
-  const done = () => { setBinding(''); setNotice('账号绑定成功，身份与业务数据已经同步。'); void profile.reload(); };
+  const toast = useToast();
+  const done = () => { setBinding(''); toast({ title: '账号绑定成功', description: '身份与业务数据已经同步。', tone: 'success' }); void profile.reload(); };
 
   if (profile.loading && !profile.data) return <LoadingState />;
   return <Page>
     <PageHeader eyebrow="Identity & security" title="个人中心" description="邮箱与微信是同一个平台身份，两端共享客户、任务、订单和会员权益。" actions={<Button asChild variant="outline"><Link to="/orders"><ReceiptText className="h-4 w-4" />订单记录</Link></Button>} />
     {profile.error ? <ErrorState message={profile.error} retry={profile.reload} /> : null}
-    {notice ? <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div> : null}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,.9fr)]">
       <Card className="p-6">
         <div className="flex items-center gap-4 border-b border-neutral-200 pb-6"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-950 text-lg font-semibold text-white">{profile.data?.username?.slice(0, 1).toUpperCase() || 'U'}</span><div><h2 className="text-xl font-semibold">{profile.data?.username || '当前账号'}</h2><p className="mt-1 text-xs text-neutral-500">统一身份账号</p></div></div>

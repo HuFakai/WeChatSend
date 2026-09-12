@@ -59,6 +59,7 @@ web/frontend/src
 │   ├── dialog.tsx          # 统一弹窗
 │   ├── form-field.tsx      # 统一标签、必填和帮助信息
 │   ├── page.tsx            # 页面标题、区块标题、指标和定义项
+│   ├── toast.tsx           # 全局成功、失败和信息提示
 │   └── states.tsx          # 加载、错误、空状态
 ├── features
 │   ├── task-builder/       # 四步任务创建器、状态 hook、数据类型
@@ -74,6 +75,8 @@ web/frontend/src
 
 页面通过 `React.lazy` 按路由拆包。`useResource` 统一加载、重试和竞态保护；写操作仍由页面或 feature hook 明确触发，不把隐式副作用藏进展示组件。
 
+任务列表使用 `GET /api/v1/tasks/page?page=1&pageSize=20&search=` 做服务端分页和搜索。原 `GET /api/v1/tasks` 保留，避免影响小程序和已有调用。
+
 ## 5. 后端模块边界
 
 ```text
@@ -87,6 +90,8 @@ AppModule
 ```
 
 `CoreModule` 是唯一全局基础设施模块，避免 feature 模块重复创建 Prisma Client 或连接池。业务模块通过显式 `imports/exports` 建立依赖；例如任务模块只通过 `IntelligenceModule` 使用外部变量解析服务。
+
+任务域已将 HTTP 参数、认证上下文和路由装饰器留在 `tasks.controller.ts`，数据库事务、配额和任务规则下沉到 `TasksService`。后续业务规则不应重新写入 Controller。
 
 ## 6. 视觉与交互规范
 
@@ -110,6 +115,14 @@ AppModule
 - 统一 API 的 Token 和 401 处理，统一日期、金额、加载、错误和空状态。
 - 后端从单一巨型 `AppModule` 拆为五个业务模块和一个核心模块。
 
+### 7.1 第二轮工程优化
+
+- 任务 Controller 与业务 Service 分离，控制器仅做认证用户和请求参数转交。
+- 新增任务服务端分页与标题/内容搜索，同时保持旧接口兼容。
+- 新增全局 Toast，替换平台配置、身份绑定和支付后台的临时成功文案。
+- 新增 Playwright 浏览器测试基础，覆盖桌面/移动端登录入口和任务列表分页搜索。
+- 新增任务分页与租户隔离单元测试。
+
 ## 8. 后续维护规则
 
 1. 新页面必须使用 `Page` 与 `PageHeader`，不再复制标题 DOM。
@@ -117,15 +130,15 @@ AppModule
 3. 同一业务流程超过一个页面或约 100 行状态逻辑时，放入 `features/<domain>`。
 4. 请求错误必须显示服务端可行动提示；禁止只记录到控制台。
 5. 颜色、日期、金额、状态名称和导航不允许在多个页面各自定义。
-6. 每次提交至少执行 `npm run typecheck`、`npm run test` 和 `npm run build`。
+6. 每次提交至少执行 `npm run typecheck`、`npm run test` 和 `npm run build`；涉及关键页面流程时执行 `npm run test:e2e -w @wechatsend/frontend`。首次运行需先执行 `npx playwright install chromium`。
 7. 小程序后续对齐功能时复用接口契约和文案语义，不照搬 Web DOM 或布局。
 
 ## 9. 建议的下一轮工程债务
 
 本轮保持 API 契约和数据库结构不变。后续建议按优先级继续：
 
-1. 为任务创建、身份绑定、支付下单补浏览器端集成测试。
-2. 将后端仍留在 Controller 中的数据库业务规则继续下沉到领域 Service。
-3. 为列表接口增加服务端分页，避免客户和任务达到数千条后一次加载。
-4. 建立统一 Toast/通知中心，替换页面内临时成功文案。
+1. 在已有 Playwright 基础上补任务创建、身份绑定、支付下单的沙箱流程测试。
+2. 继续拆分 `TasksService` 中的对象解析、配额预占和内容冻结规则，并为其他复杂 Controller 建立领域 Service。
+3. 为好友、模板和变量等其余大列表增加服务端分页。
+4. 将写操作错误逐步接入统一 Toast，并保留表单字段级错误和可重试页面错误。
 5. 接入可观测性，分别记录 API 延迟、队列等待、SMTP 投递和反馈超时。

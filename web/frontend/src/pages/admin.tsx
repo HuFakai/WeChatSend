@@ -7,6 +7,7 @@ import { Page, PageHeader } from '@/components/page';
 import { ErrorState, LoadingState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/toast';
 import { AiChannelsPanel, FeatureFlagsPanel, IntegrationsPanel, PaymentQrPanel } from '@/features/admin-console/sections';
 import { emptyChannel, emptyIntegration, type FeatureFlag } from '@/features/admin-console/types';
 import { useResource } from '@/hooks/use-resource';
@@ -25,7 +26,7 @@ export function AdminPage() {
     ]);
     return { flags, channels, integrations };
   }, []);
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [channel, setChannel] = useState(emptyChannel);
   const [integration, setIntegration] = useState(emptyIntegration);
@@ -61,7 +62,7 @@ export function AdminPage() {
     if (!modelTest?.prompt.trim()) return;
     void run(async () => {
       const result = await post<{ content: string }>('/admin/ai/test', { modelId: modelTest.model.id, prompt: modelTest.prompt.trim() });
-      setNotice(`AI 测试成功：${result.content}`); setModelTest(undefined);
+      toast({ title: 'AI 测试成功', description: result.content, tone: 'success' }); setModelTest(undefined);
     });
   };
   const toggleChannel = (item: AiChannel) => void run(async () => { await patch(`/admin/ai/channels/${item.id}`, { isActive: !item.isActive }); await resource.reload(); });
@@ -90,7 +91,7 @@ export function AdminPage() {
   };
   const testIntegration = (id: string) => void run(async () => {
     const result = await post<{ variables: Array<{ name: string; responsePath: string; value: string | null }> }>(`/admin/integrations/${id}/test`);
-    setNotice(`API 测试成功：${result.variables.map((item) => `{{${item.name}}}=${item.value ?? '未取到值'}（${item.responsePath}）`).join('；')}`);
+    toast({ title: 'API 测试成功', description: result.variables.map((item) => `{{${item.name}}}=${item.value ?? '未取到值'}（${item.responsePath}）`).join('；'), tone: 'success', duration: 8000 });
   });
   const createQr = () => void run(async () => { const result = await post<{ qrDataUrl: string }>('/payments/qr', { amountFen: Number(payment.amountFen), description: payment.description }); setQr(result.qrDataUrl); });
 
@@ -101,7 +102,6 @@ export function AdminPage() {
   return <Page>
     <PageHeader eyebrow="Admin console" title="平台配置" description="集中管理业务开关、AI 通道和外部变量。所有密钥只写入服务端加密字段，不在页面和日志中回显。" actions={<><Button asChild variant="outline"><Link to="/admin/payment"><CreditCard className="h-4 w-4" />支付与套餐</Link></Button><Button asChild variant="outline"><Link to="/admin/templates"><Library className="h-4 w-4" />内容库审核</Link></Button><Button variant="outline" onClick={() => void resource.reload()}><RefreshCw className="h-4 w-4" />刷新</Button></>} />
     {resource.error ? <ErrorState message={resource.error} /> : null}
-    {notice ? <div role="status" className="rounded-xl border border-neutral-300 bg-neutral-50 p-4 text-sm text-neutral-800">{notice}</div> : null}
     <FeatureFlagsPanel flags={data.flags} onToggle={toggleFlag} />
     <div className="grid items-start gap-5 xl:grid-cols-2"><AiChannelsPanel channels={data.channels} draft={channel} busy={busy} onDraft={setChannel} onSave={saveChannel} onToggleChannel={toggleChannel} onToggleModel={toggleModel} onAddModel={(channelId) => setModelDraft({ channelId, name: '', displayName: '' })} onTestModel={(model) => setModelTest({ model, prompt: '请写一句简短的客户问候语' })} /><IntegrationsPanel items={data.integrations} draft={integration} busy={busy} onDraft={setIntegration} onSave={saveIntegration} onTest={testIntegration} /></div>
     <PaymentQrPanel {...payment} qr={qr} busy={busy} onChange={setPayment} onCreate={createQr} />

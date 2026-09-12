@@ -4,7 +4,8 @@ import { DraftsController } from '../drafts';
 import { FeedbackController } from '../feedback';
 import { FriendsController } from '../friends';
 import { SegmentsController } from '../segments';
-import { TasksController } from '../tasks';
+import { TasksController } from '../tasks.controller';
+import { TasksService } from '../tasks';
 import { TemplatesController } from '../templates';
 import { VariablesController } from '../variables';
 import { IntelligenceModule } from './intelligence.module';
@@ -21,5 +22,6 @@ import { IntelligenceModule } from './intelligence.module';
     TasksController,
     FeedbackController,
   ],
+  providers: [TasksService],
 })
 export class MessagingModule {}

@@ -3,6 +3,7 @@ import { api, patch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { ErrorState } from './states';
+import { useToast } from './toast';
 
 const initial = {
   appId: '',
@@ -18,7 +19,7 @@ const initial = {
 export function AlipaySettings() {
   const [form, setForm] = useState(initial);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -31,7 +32,6 @@ export function AlipaySettings() {
     event.preventDefault();
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       const { hasPrivateKey, hasPublicKey, privateKey, publicKey, ...values } = form;
       const settings = await patch<typeof initial>('/admin/alipay/config', {
@@ -40,7 +40,7 @@ export function AlipaySettings() {
         ...(publicKey ? { publicKey } : {}),
       });
       setForm({ ...initial, ...settings });
-      setNotice('支付宝配置已保存。新订单使用新配置，已有订单保留原配置快照。');
+      toast({ title: '支付宝配置已保存', description: '新订单使用新配置，已有订单保留原配置快照。', tone: 'success' });
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
@@ -54,7 +54,6 @@ export function AlipaySettings() {
       <CardContent>
         <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
           {error && <div className="md:col-span-2"><ErrorState message={error} /></div>}
-          {notice && <p role="status" className="text-sm text-emerald-700 md:col-span-2">{notice}</p>}
           <label>
             <span className="field-label">支付宝应用 AppID</span>
             <input className="input" required inputMode="numeric" value={form.appId} onChange={(event) => setForm({ ...form, appId: event.target.value })} />

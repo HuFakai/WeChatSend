@@ -1,23 +1,15 @@
 import {
   BadRequestException,
-  Body,
-  Controller,
-  Get,
+  Injectable,
   NotFoundException,
-  Param,
-  Post,
-  Req,
-  UseGuards,
 } from '@nestjs/common';
 import { MessageStatus, Prisma, TaskStatus } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { AuthGuard, AuthRequest } from './auth';
 import { feedbackDisplayState, FrozenVariable, referencedVariables, renderContent, unknownVariables } from './content';
 import { assertSafeTagValue } from './lib';
 import { PrismaService } from './prisma.service';
 import { ExternalApiService } from './external-api';
-import { ZodPipe } from './zod.pipe';
 
 const selectionSchema = z.object({
   accountId: z.string().uuid(),
@@ -28,7 +20,7 @@ const selectionSchema = z.object({
   maxDelay: z.number().int().min(10).max(3600).optional(),
 }).refine((value) => value.friendIds.length + value.groupIds.length + value.tagIds.length > 0, '请至少选择好友、分组或标签');
 
-const createTaskSchema = z.object({
+export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(100),
   content: z.string().min(1).max(10000),
   scheduledAt: z.string().datetime().optional(),
@@ -39,42 +31,64 @@ const createTaskSchema = z.object({
   selections: z.array(selectionSchema).min(1).max(100),
 });
 
-const previewTaskSchema = createTaskSchema.omit({ idempotencyKey: true });
+export const previewTaskSchema = createTaskSchema.omit({ idempotencyKey: true });
 
-const resendSchema = z.object({ idempotencyKey: z.string().min(8).max(100) });
+export const resendSchema = z.object({ idempotencyKey: z.string().min(8).max(100) });
+export const taskListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(100).optional().default(''),
+});
 
-@Controller('tasks')
-@UseGuards(AuthGuard)
-export class TasksController {
+@Injectable()
+export class TasksService {
   constructor(private readonly prisma: PrismaService, private readonly externalApi: ExternalApiService) {}
 
-  @Get()
-  list(@Req() request: AuthRequest) {
+  list(ownerId: string) {
     return this.prisma.task.findMany({
-      where: { ownerId: request.user.id },
+      where: { ownerId },
       orderBy: { createdAt: 'desc' },
       take: 100,
       include: { _count: { select: { messages: true } } },
     });
   }
 
-  @Get('summary')
-  async summary(@Req() request: AuthRequest) {
+  async listPage(ownerId: string, query: z.infer<typeof taskListQuerySchema>) {
+    const where: Prisma.TaskWhereInput = {
+      ownerId,
+      ...(query.search ? { OR: [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { content: { contains: query.search, mode: 'insensitive' } },
+      ] } : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: { _count: { select: { messages: true } } },
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+    return { items, total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async summary(ownerId: string) {
     const [accounts, friends, tasks, statuses] = await Promise.all([
-      this.prisma.wechatAccount.count({ where: { ownerId: request.user.id, status: 'ACTIVE' } }),
-      this.prisma.friend.count({ where: { ownerId: request.user.id, status: 'ACTIVE' } }),
-      this.prisma.task.count({ where: { ownerId: request.user.id } }),
+      this.prisma.wechatAccount.count({ where: { ownerId, status: 'ACTIVE' } }),
+      this.prisma.friend.count({ where: { ownerId, status: 'ACTIVE' } }),
+      this.prisma.task.count({ where: { ownerId } }),
       this.prisma.taskMessage.groupBy({
-        by: ['status'], where: { task: { ownerId: request.user.id } }, _count: { _all: true },
+        by: ['status'], where: { task: { ownerId } }, _count: { _all: true },
       }),
     ]);
     return { accounts, friends, tasks, messages: Object.fromEntries(statuses.map((s) => [s.status, s._count._all])) };
   }
 
-  @Get(':id')
-  async detail(@Req() request: AuthRequest, @Param('id') id: string) {
+  async detail(ownerId: string, id: string) {
     const task = await this.prisma.task.findFirst({
-      where: { id, ownerId: request.user.id },
+      where: { id, ownerId },
       include: {
         accountSettings: true,
         messages: { orderBy: { createdAt: 'asc' }, include: { attempts: { orderBy: { sequence: 'asc' } } } },
@@ -92,13 +106,12 @@ export class TasksController {
     };
   }
 
-  @Post('preview')
   async preview(
-    @Req() request: AuthRequest,
-    @Body(new ZodPipe(previewTaskSchema)) body: z.infer<typeof previewTaskSchema>,
+    ownerId: string,
+    body: z.infer<typeof previewTaskSchema>,
   ) {
     const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
-    const prepared = await this.prepare(request.user.id, body, scheduledAt, body.renderSeed ?? randomUUID());
+    const prepared = await this.prepare(ownerId, body, scheduledAt, body.renderSeed ?? randomUUID());
     return {
       renderSeed: prepared.seed,
       previewFingerprint: this.fingerprint(prepared.seed, prepared.messageRows),
@@ -111,16 +124,15 @@ export class TasksController {
     };
   }
 
-  @Post()
   async create(
-    @Req() request: AuthRequest,
-    @Body(new ZodPipe(createTaskSchema)) body: z.infer<typeof createTaskSchema>,
+    ownerId: string,
+    body: z.infer<typeof createTaskSchema>,
   ) {
     const existing = await this.prisma.task.findUnique({
-      where: { ownerId_idempotencyKey: { ownerId: request.user.id, idempotencyKey: body.idempotencyKey } },
+      where: { ownerId_idempotencyKey: { ownerId, idempotencyKey: body.idempotencyKey } },
       select: { id: true },
     });
-    if (existing) return this.detail(request, existing.id);
+    if (existing) return this.detail(ownerId, existing.id);
     try {
       assertSafeTagValue(body.content);
     } catch (error) {
@@ -130,7 +142,7 @@ export class TasksController {
     if (scheduledAt.getTime() < Date.now() - 60_000) throw new BadRequestException('定时时间不能早于当前时间');
 
     const taskId = randomUUID();
-    const prepared = await this.prepare(request.user.id, body, scheduledAt, body.renderSeed ?? taskId);
+    const prepared = await this.prepare(ownerId, body, scheduledAt, body.renderSeed ?? taskId);
     if (body.previewFingerprint && body.previewFingerprint !== this.fingerprint(prepared.seed, prepared.messageRows)) {
       throw new BadRequestException('预览内容已变化，请重新预览后再提交');
     }
@@ -142,12 +154,12 @@ export class TasksController {
       await this.prisma.$transaction(async (tx) => {
         await tx.task.create({
           data: {
-            id: taskId, ownerId: request.user.id, title: body.title, content: body.content,
+            id: taskId, ownerId, title: body.title, content: body.content,
             contentTemplate: body.content, templateSnapshot, variableSnapshot, randomSeed: seed,
             scheduledAt, status, idempotencyKey: body.idempotencyKey,
           },
         });
-        await this.reserveMembership(tx, request.user.id, taskId, messageRows.length);
+        await this.reserveMembership(tx, ownerId, taskId, messageRows.length);
         await tx.taskAccountSetting.createMany({
           data: selections.map((selection) => {
             const account = accountMap.get(selection.accountId)!;
@@ -170,19 +182,18 @@ export class TasksController {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await this.prisma.task.findUnique({
-          where: { ownerId_idempotencyKey: { ownerId: request.user.id, idempotencyKey: body.idempotencyKey } },
+          where: { ownerId_idempotencyKey: { ownerId, idempotencyKey: body.idempotencyKey } },
         });
         if (existing) return existing;
       }
       throw error;
     }
-    return this.detail(request, taskId);
+    return this.detail(ownerId, taskId);
   }
 
-  @Post(':id/copy')
-  async copy(@Req() request: AuthRequest, @Param('id') id: string) {
+  async copy(ownerId: string, id: string) {
     const task = await this.prisma.task.findFirst({
-      where: { id, ownerId: request.user.id },
+      where: { id, ownerId },
       include: { accountSettings: true, messages: { orderBy: { recipientOrder: 'asc' } } },
     });
     if (!task) throw new NotFoundException('任务不存在');
@@ -196,7 +207,7 @@ export class TasksController {
     }));
     const content = task.contentTemplate ?? task.content;
     return this.prisma.taskDraft.create({ data: {
-      ownerId: request.user.id,
+      ownerId,
       title: `副本：${task.title}`.slice(0, 100),
       content,
       sourceTaskId: task.id,
@@ -204,9 +215,8 @@ export class TasksController {
     } });
   }
 
-  @Post(':id/cancel')
-  async cancel(@Req() request: AuthRequest, @Param('id') id: string) {
-    const task = await this.prisma.task.findFirst({ where: { id, ownerId: request.user.id } });
+  async cancel(ownerId: string, id: string) {
+    const task = await this.prisma.task.findFirst({ where: { id, ownerId } });
     if (!task) throw new NotFoundException('任务不存在');
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM tasks WHERE id=${id}::uuid FOR UPDATE`;
@@ -220,15 +230,14 @@ export class TasksController {
     return { ok: true };
   }
 
-  @Post(':id/messages/:messageId/resend')
   async resend(
-    @Req() request: AuthRequest,
-    @Param('id') taskId: string,
-    @Param('messageId') messageId: string,
-    @Body(new ZodPipe(resendSchema)) body: z.infer<typeof resendSchema>,
+    ownerId: string,
+    taskId: string,
+    messageId: string,
+    body: z.infer<typeof resendSchema>,
   ) {
     const message = await this.prisma.taskMessage.findFirst({
-      where: { id: messageId, taskId, task: { ownerId: request.user.id } },
+      where: { id: messageId, taskId, task: { ownerId } },
       include: { task: true },
     });
     if (!message) throw new NotFoundException('邮件记录不存在');
@@ -236,7 +245,7 @@ export class TasksController {
       throw new BadRequestException('只有发送失败或结果待核实的记录可以人工重发');
     }
 
-    return this.create(request, {
+    return this.create(ownerId, {
       title: `重发：${message.task.title}`.slice(0, 100),
       content: message.content,
       idempotencyKey: body.idempotencyKey,
